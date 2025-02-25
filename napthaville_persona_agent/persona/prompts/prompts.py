@@ -336,3 +336,137 @@ On the scale of 1 to 10, where 1 is purely mundane (e.g., I need to do the dishe
 
 Thought: {thought_description}
 Rate (return a number between 1 to 10):"""
+
+################################### chat_poignancy_template ###################################
+chat_poignancy_template = """Here is a brief description of {persona_name}. 
+{persona_iss}
+
+On the scale of 1 to 10, where 1 is purely mundane (e.g., routine morning greetings) and 10 is extremely poignant (e.g., a conversation about breaking up, a fight), rate the likely poignancy of the following conversation for {persona_name_repeat}.
+
+Conversation: 
+{conversation_description}
+
+Rate (return a number between 1 to 10):"""
+
+################################### focal_pt_template ###################################
+focal_pt_template = """{statements}
+
+Given only the information above, what are {n} most salient high-level questions we can answer about the subjects grounded in the statements?
+1)"""
+
+################################### insight_and_guidance_template ###################################
+insight_and_guidance_template = """Input:
+{statements}
+
+What {n} high-level insights can you infer from the above statements? (example format: insight (because of 1, 5, 3))
+1."""
+
+################################### summarize_chat_ideas_template ###################################
+summarize_chat_ideas_template = """Current Date: {curr_date}
+
+{curr_context}
+
+Currently: {currently}
+
+{statements}
+Summarize the most relevant statements above that can inform {persona_name} in his conversation with {target_name}.
+"""
+
+################################### summarize_chat_relationship_template ###################################
+summarize_chat_relationship_template = """[Statements]
+{statements}
+
+Based on the statements above, summarize {persona_name} and {target_name}'s relationship. What do they feel or know about each other?
+"""
+
+################################### agent_chat_template ###################################
+agent_chat_template = """Character 1: {init_persona_currently}
+Character 2: {target_persona_currently}
+
+Past Context: {prior_convo_summary}
+
+Current Context: {curr_context}
+Current Location: {curr_location}
+
+(This is what is in {init_persona_name}'s head: {init_summ_idea} Beyond this, {init_persona_name} doesn't necessarily know anything more about {target_persona_name}) 
+
+(This is what is in {target_persona_name}'s head: {target_summ_idea} Beyond this, {target_persona_name} doesn't necessarily know anything more about {init_persona_name}) 
+
+Here is their conversation. 
+
+{init_persona_name}: \""""
+
+################################### summarize_ideas_template ###################################
+summarize_ideas_template = """Statements: 
+{statements}
+
+An interviewer said to {persona_name}: 
+"{question}"
+
+Summarize the Statements that are most relevant to the interviewer's line:
+"""
+
+################################### generate_next_convo_line_template ###################################
+generate_next_convo_line_template = """Here is some basic information about {persona_name}.
+{persona_iss}
+
+=== 
+Following is a conversation between {persona_name} and {interlocutor_desc}. 
+
+{prev_convo}
+
+(Note -- This is the only information that {persona_name} has: {retrieved_summary})
+
+{persona_name}: \""""
+
+################################### whisper_inner_thought_template ###################################
+whisper_inner_thought_template = """Translate the following thought into a statement about {persona_name}. 
+
+Thought: "{whisper}"
+Statement: \""""
+
+################################### planning_thought_on_convo_template ###################################
+planning_thought_on_convo_template = """[Conversation]
+{all_utt}
+
+Write down if there is anything from the conversation that {persona_name} need to remember for her planning, from {persona_name}'s perspective, in a full sentence.
+
+"{persona_name}"""
+
+################################### memo_on_convo_template ###################################
+memo_on_convo_template = """[Conversation]
+{all_utt}
+
+Write down if there is anything from the conversation that {persona_name} might have found interesting from {persona_name}'s perspective, in a full sentence. 
+
+"{persona_name}"""
+
+################################### iterative_convo_template ###################################
+iterative_convo_template = """Context for the task: 
+
+PART 1. 
+{init_iss}
+
+Here is the memory that is in {init_persona_name}'s head: 
+{retrieved_str}
+
+PART 2. 
+Past Context: 
+{prev_convo_insert}
+
+Current Location: {curr_location}
+
+Current Context: 
+{curr_context}
+
+{init_persona_name} and {target_persona_name} are chatting. Here is their conversation so far: 
+{convo_str}
+
+---
+Task: Given the above, what should {init_persona_name} say to {target_persona_name} next in the conversation? And did it end the conversation?
+
+Output format: Output a json of the following format: 
+{{
+"{init_persona_name}": "<{init_persona_name}'s utterance>",
+"Did the conversation end with {init_persona_name}'s utterance?": "<json Boolean>"
+}}"""

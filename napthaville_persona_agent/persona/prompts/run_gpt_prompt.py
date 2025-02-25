@@ -15,7 +15,10 @@ from napthaville_persona_agent.persona.prompts.prompts import (
     pronunciation_template, event_triple_template, act_obj_desc_template, act_obj_event_triple_template,
     new_decomp_schedule_template, decide_to_talk_template, decide_to_react_template, create_conversation_template,
     summarize_conversation_template, extract_keywords_template, keyword_to_thoughts_template,
-    convo_to_thoughts_template, event_poignancy_template, thought_poignancy_template
+    convo_to_thoughts_template, event_poignancy_template, thought_poignancy_template, chat_poignancy_template,
+    focal_pt_template, insight_and_guidance_template, summarize_chat_ideas_template, summarize_chat_relationship_template,
+    agent_chat_template, summarize_ideas_template, generate_next_convo_line_template, whisper_inner_thought_template,
+    planning_thought_on_convo_template, memo_on_convo_template, iterative_convo_template
 )
 
 file_path = Path(__file__).parent
@@ -2343,6 +2346,1280 @@ def run_gpt_prompt_thought_poignancy(
 
     return output, [output, prompt, prompt_inputs, fallback]
 
+def run_gpt_prompt_chat_poignancy(
+    persona: Any,
+    conversation_description: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[int, List[Any]]:
+    """
+    Rate the poignancy of a conversation for a persona on a scale of 1-10.
+    
+    Args:
+        persona: The Persona class instance
+        conversation_description: Description of the conversation to rate
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Poignancy rating (1-10)
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        conversation_description: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'persona_name': persona.scratch.name,
+            'persona_iss': persona.scratch.get_str_iss(),
+            'persona_name_repeat': persona.scratch.name,
+            'conversation_description': conversation_description
+        }
+
+    def clean_up_response(response: str) -> int:
+        """Clean up the rating response."""
+        try:
+            # Extract just the numeric part if there's extra text
+            for word in response.strip().split():
+                if word.isdigit():
+                    rating = int(word)
+                    # Ensure rating is between 1 and 10
+                    return max(1, min(10, rating))
+            
+            # If we get here, try to convert the whole response
+            return int(response.strip())
+        except Exception as e:
+            if verbose:
+                print(f"Error in clean up: {e}")
+            raise ValueError("Could not parse response as integer")
+
+    def validate_response(response: str) -> bool:
+        """Validate the rating response."""
+        try:
+            rating = clean_up_response(response)
+            return 1 <= rating <= 10
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> int:
+        """Return fallback rating."""
+        return 4  # Neutral middle-low rating as fallback
+
+    # Generate prompt
+    prompt_inputs = create_prompt_input(persona, conversation_description, test_input)
+    prompt = chat_poignancy_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        # Use only chat_completion_request
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+    except Exception as e:
+        if verbose:
+            print(f"Error in conversation poignancy rating: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Conversation: {conversation_description[:50]}...")
+        print(f"Poignancy rating: {output}/10")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+
+def run_gpt_prompt_focal_pt(
+    persona: Any,
+    statements: str,
+    n: int,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[List[str], List[Any]]:
+    """
+    Generate focal points from a set of statements.
+    
+    Args:
+        persona: The Persona class instance
+        statements: Set of statements to analyze
+        n: Number of focal points to generate
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - List of focal points
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        statements: str,
+        n: int,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'statements': statements,
+            'n': str(n)
+        }
+
+    def clean_up_response(response: str) -> List[str]:
+        """Clean up the focal points response."""
+        try:
+            # Add "1) " prefix if it doesn't start with a number
+            if not response.strip().startswith(("1", "1)", "1.")):
+                response = "1) " + response.strip()
+            
+            ret = []
+            for line in response.split("\n"):
+                if ")" in line:
+                    ret.append(line.split(") ", 1)[-1].strip())
+                elif "." in line and line[0].isdigit():
+                    # Handle cases like "1. Question"
+                    ret.append(line.split(". ", 1)[-1].strip())
+            
+            # Filter out empty strings
+            ret = [item for item in ret if item]
+            
+            return ret
+        except Exception as e:
+            if verbose:
+                print(f"Error in clean up: {e}")
+            return []
+
+    def validate_response(response: str) -> bool:
+        """Validate the focal points response."""
+        try:
+            result = clean_up_response(response)
+            return len(result) > 0
+        except:
+            return False
+
+    def get_fallback(n: int) -> List[str]:
+        """Return fallback focal points."""
+        return ["Who am I"] * n
+    # Generate prompt
+    prompt_inputs = create_prompt_input(persona, statements, n, test_input)
+    prompt = focal_pt_template.format(**prompt_inputs)
+    
+    fallback = get_fallback(n)
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+            # Ensure we have exactly n items
+            if len(output) > n:
+                output = output[:n]
+            elif len(output) < n:
+                output.extend(fallback[:n - len(output)])
+    except Exception as e:
+        if verbose:
+            print(f"Error in focal point generation: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Statements: {statements[:50]}...")
+        print(f"Generated {len(output)} focal points:")
+        for i, point in enumerate(output, 1):
+            print(f"  {i}. {point}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_insight_and_guidance(
+    persona: Any,
+    statements: str,
+    n: int,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[Dict[str, List[int]], List[Any]]:
+    """
+    Generate insights with supporting evidence from a set of statements.
+    
+    Args:
+        persona: The Persona class instance
+        statements: Numbered list of statements to analyze
+        n: Number of insights to generate
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Dictionary mapping insights to lists of supporting evidence indices
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        statements: str,
+        n: int,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'statements': statements,
+            'n': str(n)
+        }
+
+    def clean_up_response(response: str) -> Dict[str, List[int]]:
+        """Clean up the insights response into a dictionary of insight -> evidence."""
+        try:
+            # Add numbering if not present
+            if not response.strip().startswith(("1.", "1:")):
+                response = "1. " + response.strip()
+            
+            ret = dict()
+            
+            for line in response.split("\n"):
+                if not line.strip():
+                    continue
+                
+                # Extract the insight part (before "because of")
+                if "(because of" not in line:
+                    continue
+                    
+                row = line.split(". ", 1)[-1] if ". " in line else line
+                thought = row.split("(because of")[0].strip()
+                
+                # Extract evidence numbers
+                evidence_part = row.split("(because of")[1]
+                if ")" in evidence_part:
+                    evidence_part = evidence_part.split(")")[0].strip()
+                
+                # Find all numbers in the evidence part
+                evi_raw = re.findall(r'\d+', evidence_part)
+                evi_raw = [int(i.strip()) for i in evi_raw]
+                
+                ret[thought] = evi_raw
+            
+            return ret
+        except Exception as e:
+            if verbose:
+                print(f"Error in clean up: {e}")
+            return {}
+
+    def validate_response(response: str) -> bool:
+        """Validate the insights response."""
+        try:
+            result = clean_up_response(response)
+            return len(result) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback(n: int) -> Dict[str, List[int]]:
+        """Return fallback insights."""
+        fallback_insights = {}
+        for i in range(n):
+            fallback_insights[f"Insight {i+1}: Not enough information to determine"] = [1]
+        return fallback_insights
+
+    # Set GPT parameters
+    gpt_param = {
+        "engine": "text-davinci-003",
+        "max_tokens": 150,
+        "temperature": 0.5,
+        "top_p": 1,
+        "stream": False,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "stop": None
+    }
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(persona, statements, n, test_input)
+    prompt = insight_and_guidance_template.format(**prompt_inputs)
+    
+    fallback = get_fallback(n)
+    
+    try:
+        response = chat_completion_request(prompt)
+        print(f"Response: {response}")
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+            # Ensure we have exactly n items
+            if len(output) > n:
+                # Keep only the first n items
+                output = dict(list(output.items())[:n])
+            elif len(output) < n:
+                # Add fallback items to reach n
+                for i, (insight, evidence) in enumerate(list(fallback.items())):
+                    if len(output) >= n:
+                        break
+                    key = f"Additional insight {i+1}: Limited data available"
+                    output[key] = evidence
+    except Exception as e:
+        if verbose:
+            print(f"Error in insight generation: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Statements: {statements[:50]}...")
+        print(f"Generated {len(output)} insights:")
+        for i, (insight, evidence) in enumerate(output.items(), 1):
+            print(f"  {i}. {insight} (because of {evidence})")
+
+    return output, [output, prompt, gpt_param, prompt_inputs, fallback]
+
+def run_gpt_prompt_summarize_chat_ideas(
+    persona: Any,
+    target_persona: Any,
+    statements: str,
+    curr_context: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[str, List[Any]]:
+    """
+    Summarize the most relevant statements that can inform a persona in conversation with another.
+    
+    Args:
+        persona: The Persona class instance
+        target_persona: The target Persona instance
+        statements: Relevant statements to summarize
+        curr_context: Current context description
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Summary string
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        target_persona: Any,
+        statements: str,
+        curr_context: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'curr_date': persona.scratch.get_str_curr_date_str(),
+            'curr_context': curr_context,
+            'currently': persona.scratch.currently,
+            'statements': statements,
+            'persona_name': persona.scratch.name,
+            'target_name': target_persona.scratch.name
+        }
+
+    def clean_up_response(response: str) -> str:
+        """Clean up the summary response."""
+        # Remove quotes if present
+        if '"' in response:
+            response = response.split('"')[0]
+        return response.strip()
+
+    def validate_response(response: str) -> bool:
+        """Validate the summary response."""
+        try:
+            cleaned = clean_up_response(response)
+            return len(cleaned) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> str:
+        """Return fallback response."""
+        return "..."
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        persona, target_persona, statements, curr_context, test_input
+    )
+    prompt = summarize_chat_ideas_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in chat ideas summarization: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Persona: {persona.scratch.name}")
+        print(f"Target: {target_persona.scratch.name}")
+        print(f"Generated summary: {output}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_summarize_chat_relationship(
+    persona: Any,
+    target_persona: Any,
+    statements: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[str, List[Any]]:
+    """
+    Summarize the relationship between two personas based on statements.
+    
+    Args:
+        persona: The Persona class instance
+        target_persona: The target Persona instance
+        statements: Relevant statements about their relationship
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Relationship summary string
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        target_persona: Any,
+        statements: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'statements': statements,
+            'persona_name': persona.scratch.name,
+            'target_name': target_persona.scratch.name
+        }
+
+    def clean_up_response(response: str) -> str:
+        """Clean up the summary response."""
+        # Remove quotes if present
+        if '"' in response:
+            response = response.split('"')[0]
+        return response.strip()
+
+    def validate_response(response: str) -> bool:
+        """Validate the summary response."""
+        try:
+            cleaned = clean_up_response(response)
+            return len(cleaned) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> str:
+        """Return fallback response."""
+        return "..."
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        persona, target_persona, statements, test_input
+    )
+    prompt = summarize_chat_relationship_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in relationship summarization: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Personas: {persona.scratch.name} and {target_persona.scratch.name}")
+        print(f"Generated relationship summary: {output}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_agent_chat(
+    maze: Any,
+    persona: Any,
+    target_persona: Any,
+    curr_context: str,
+    init_summ_idea: str,
+    target_summ_idea: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[List[List[str]], List[Any]]:
+    """
+    Generate a conversation between two personas based on their contexts and ideas.
+    
+    Args:
+        maze: The Maze class instance for location information
+        persona: The initiating Persona instance
+        target_persona: The target Persona instance
+        curr_context: Current context description
+        init_summ_idea: Summary of initiator's relevant ideas
+        target_summ_idea: Summary of target's relevant ideas
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - List of [speaker, dialogue] pairs
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        maze: Any,
+        persona: Any,
+        target_persona: Any,
+        curr_context: str,
+        init_summ_idea: str,
+        target_summ_idea: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+        
+        # Get previous conversation context if exists
+        prev_convo_insert = "\n"
+        if persona.a_mem.seq_chat:
+            for chat in persona.a_mem.seq_chat:
+                if chat.object == target_persona.scratch.name:
+                    mins_ago = int((persona.scratch.curr_time - chat.created).total_seconds() / 60)
+                    prev_convo_insert += f'{mins_ago} minutes ago, {persona.scratch.name} and {target_persona.scratch.name} were already {chat.description} This context takes place after that conversation.'
+                    break
+                    
+        if prev_convo_insert == "\n":
+            prev_convo_insert = ""
+            
+        # Clear old conversations (>8 hours)
+        if persona.a_mem.seq_chat:
+            last_chat_age = int((persona.scratch.curr_time - persona.a_mem.seq_chat[-1].created).total_seconds() / 60)
+            if last_chat_age > 480:
+                prev_convo_insert = ""
+                
+        if verbose:
+            print(prev_convo_insert)
+        
+        # Get current location details
+        curr_sector = maze.access_tile(persona.scratch.curr_tile)['sector']
+        curr_arena = maze.access_tile(persona.scratch.curr_tile)['arena']
+        curr_location = f"{curr_arena} in {curr_sector}"
+        
+        return {
+            'init_persona_currently': persona.scratch.currently,
+            'target_persona_currently': target_persona.scratch.currently,
+            'prior_convo_summary': prev_convo_insert,
+            'curr_context': curr_context,
+            'curr_location': curr_location,
+            'init_persona_name': persona.scratch.name,
+            'init_summ_idea': init_summ_idea,
+            'target_persona_name': target_persona.scratch.name,
+            'target_summ_idea': target_summ_idea
+        }
+
+    def clean_up_response(response: str, prompt: str) -> List[List[str]]:
+        """Clean up the conversation response."""
+        if verbose:
+            print(response)
+            
+        try:
+            # Extract conversation after prompt
+            full_text = prompt + response
+            dialogue = full_text.split("Here is their conversation.")[-1].strip()
+            
+            # Extract quoted content and speakers
+            quotes = re.findall('"([^"]*)"', dialogue)
+            speakers = []
+            for line in dialogue.split("\n"):
+                if ":" in line:
+                    speaker = line.split(":")[0].strip()
+                    if speaker:
+                        speakers.append(speaker)
+
+            # Pair speakers with their dialogue
+            conversation = []
+            for i, speaker in enumerate(speakers):
+                if i < len(quotes):
+                    conversation.append([speaker, quotes[i]])
+                    
+            return conversation
+        except Exception as e:
+            if verbose:
+                print(f"Error in cleanup: {e}")
+            return []
+
+    def validate_response(response: str, prompt: str) -> bool:
+        """Validate the conversation response."""
+        try:
+            conversation = clean_up_response(response, prompt)
+            return len(conversation) >= 1 and all(len(pair) == 2 for pair in conversation)
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> List[List[str]]:
+        """Return fallback conversation."""
+        return [[persona.scratch.name, "Hi"], [target_persona.scratch.name, "Hello"]]
+
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        maze, persona, target_persona, curr_context, init_summ_idea, target_summ_idea, test_input
+    )
+    prompt = agent_chat_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response, prompt):
+            output = fallback
+        else:
+            output = clean_up_response(response, prompt)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in conversation generation: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Generated conversation between {persona.scratch.name} and {target_persona.scratch.name}:")
+        for speaker, text in output:
+            print(f"{speaker}: {text}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_summarize_ideas(
+    persona: Any,
+    statements: str,
+    question: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[str, List[Any]]:
+    """
+    Summarize statements that are most relevant to a specific question.
+    
+    Args:
+        persona: The Persona class instance
+        statements: Statements to analyze
+        question: The interviewer's question
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Summary string
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        statements: str,
+        question: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'statements': statements,
+            'persona_name': persona.scratch.name,
+            'question': question
+        }
+
+    def clean_up_response(response: str) -> str:
+        """Clean up the summary response."""
+        # Remove quotes if present
+        if '"' in response:
+            response = response.split('"')[0]
+        return response.strip()
+
+    def validate_response(response: str) -> bool:
+        """Validate the summary response."""
+        try:
+            cleaned = clean_up_response(response)
+            return len(cleaned) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> str:
+        """Return fallback response."""
+        return "..."
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        persona, statements, question, test_input
+    )
+    prompt = summarize_ideas_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in ideas summarization: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Persona: {persona.scratch.name}")
+        print(f"Question: {question}")
+        print(f"Generated summary: {output}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_generate_next_convo_line(
+    persona: Any,
+    interlocutor_desc: str,
+    prev_convo: str,
+    retrieved_summary: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[str, List[Any]]:
+    """
+    Generate the next conversation line for a persona based on previous context.
+    
+    Args:
+        persona: The Persona class instance
+        interlocutor_desc: Description of the conversation partner
+        prev_convo: Previous conversation context
+        retrieved_summary: Retrieved information summary for the persona
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Generated next conversation line
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        interlocutor_desc: str,
+        prev_convo: str,
+        retrieved_summary: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'persona_name': persona.scratch.name,
+            'persona_iss': persona.scratch.get_str_iss(),
+            'interlocutor_desc': interlocutor_desc,
+            'prev_convo': prev_convo,
+            'retrieved_summary': retrieved_summary
+        }
+
+    def clean_up_response(response: str) -> str:
+        """Clean up the response to get just the dialogue line."""
+        # Remove quotes if present
+        if '"' in response:
+            response = response.split('"')[0]
+        return response.strip()
+
+    def validate_response(response: str) -> bool:
+        """Validate the dialogue response."""
+        try:
+            cleaned = clean_up_response(response)
+            return len(cleaned) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> str:
+        """Return fallback dialogue line."""
+        return "..."
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        persona, interlocutor_desc, prev_convo, retrieved_summary, test_input
+    )
+    prompt = generate_next_convo_line_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in generating next conversation line: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Persona: {persona.scratch.name}")
+        print(f"Interlocutor: {interlocutor_desc}")
+        print(f"Previous conversation: {prev_convo[:50]}...")
+        print(f"Generated next line: {output}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_generate_whisper_inner_thought(
+    persona: Any,
+    whisper: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[str, List[Any]]:
+    """
+    Translate a whisper/thought into a third-person statement about a persona.
+    
+    Args:
+        persona: The Persona class instance
+        whisper: The inner thought/whisper to translate
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Translated statement
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        whisper: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'persona_name': persona.scratch.name,
+            'whisper': whisper
+        }
+
+    def clean_up_response(response: str) -> str:
+        """Clean up the response to get just the statement."""
+        # Remove quotes if present
+        if '"' in response:
+            response = response.split('"')[0]
+        return response.strip()
+
+    def validate_response(response: str) -> bool:
+        """Validate the statement response."""
+        try:
+            cleaned = clean_up_response(response)
+            return len(cleaned) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> str:
+        """Return fallback statement."""
+        return "..."
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        persona, whisper, test_input
+    )
+    prompt = whisper_inner_thought_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in generating inner thought statement: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Persona: {persona.scratch.name}")
+        print(f"Whisper: {whisper}")
+        print(f"Generated statement: {output}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_planning_thought_on_convo(
+    persona: Any,
+    all_utt: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[str, List[Any]]:
+    """
+    Generate planning thoughts for a persona based on a conversation.
+    
+    Args:
+        persona: The Persona class instance
+        all_utt: All utterances from the conversation
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Planning thought statement
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        all_utt: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'all_utt': all_utt,
+            'persona_name': persona.scratch.name
+        }
+
+    def clean_up_response(response: str) -> str:
+        """Clean up the response to get just the planning thought."""
+        # Remove quotes if present
+        if '"' in response:
+            response = response.split('"')[0]
+        return response.strip()
+
+    def validate_response(response: str) -> bool:
+        """Validate the planning thought response."""
+        try:
+            cleaned = clean_up_response(response)
+            return len(cleaned) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> str:
+        """Return fallback planning thought."""
+        return "..."
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        persona, all_utt, test_input
+    )
+    prompt = planning_thought_on_convo_template.format(**prompt_inputs)
+                
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in generating planning thought: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Persona: {persona.scratch.name}")
+        print(f"Conversation excerpt: {all_utt[:50]}...")
+        print(f"Generated planning thought: {output}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_prompt_memo_on_convo(
+    persona: Any,
+    all_utt: str,
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[str, List[Any]]:
+    """
+    Generate a memo about what a persona found interesting in a conversation.
+    
+    Args:
+        persona: The Persona class instance
+        all_utt: All utterances from the conversation
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Memo statement
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        persona: Any,
+        all_utt: str,
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+            
+        return {
+            'all_utt': all_utt,
+            'persona_name': persona.scratch.name
+        }
+
+    def clean_up_response(response: str) -> str:
+        """Clean up the response to get just the memo."""
+        # Remove quotes if present
+        if '"' in response:
+            response = response.split('"')[0]
+        return response.strip()
+
+    def validate_response(response: str) -> bool:
+        """Validate the memo response."""
+        try:
+            cleaned = clean_up_response(response)
+            return len(cleaned) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> str:
+        """Return fallback memo."""
+        return "..."
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        persona, all_utt, test_input
+    )
+    prompt = memo_on_convo_template.format(**prompt_inputs)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in generating conversation memo: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Persona: {persona.scratch.name}")
+        print(f"Conversation excerpt: {all_utt[:50]}...")
+        print(f"Generated memo: {output}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
+def run_gpt_generate_iterative_chat_utt(
+    maze: Any,
+    init_persona: Any,
+    target_persona: Any,
+    retrieved: Dict[str, List[Any]],
+    curr_context: str,
+    curr_chat: List[List[str]],
+    test_input: Optional[List[str]] = None,
+    verbose: bool = False
+) -> Tuple[Dict[str, Any], List[Any]]:
+    """
+    Generate the next utterance in an iterative conversation between two personas.
+    
+    Args:
+        maze: The Maze class instance for location information
+        init_persona: The initiating Persona instance
+        target_persona: The target Persona instance
+        retrieved: Dictionary containing relevant memory items
+        curr_context: Current context description
+        curr_chat: Current conversation as a list of [speaker, utterance] pairs
+        test_input: Optional test inputs for debugging
+        verbose: Whether to print debug information
+    
+    Returns:
+        Tuple containing:
+        - Dictionary with utterance and conversation end status
+        - List containing [output, prompt, prompt_input, fallback]
+    """
+    def create_prompt_input(
+        maze: Any,
+        init_persona: Any,
+        target_persona: Any,
+        retrieved: Dict[str, List[Any]],
+        curr_context: str,
+        curr_chat: List[List[str]],
+        test_input: Optional[List[str]] = None
+    ) -> dict:
+        """Create the formatted input for the prompt template."""
+        if test_input:
+            return test_input
+        
+        # Get previous conversation context if exists
+        prev_convo_insert = "\n"
+        if init_persona.a_mem.seq_chat:
+            for chat in init_persona.a_mem.seq_chat:
+                if chat.object == target_persona.scratch.name:
+                    mins_ago = int((init_persona.scratch.curr_time - chat.created).total_seconds() / 60)
+                    prev_convo_insert += f'{mins_ago} minutes ago, {init_persona.scratch.name} and {target_persona.scratch.name} were already {chat.description} This context takes place after that conversation.'
+                    break
+                    
+        if prev_convo_insert == "\n":
+            prev_convo_insert = ""
+            
+        # Clear old conversations (>8 hours)
+        if init_persona.a_mem.seq_chat:
+            last_chat_age = int((init_persona.scratch.curr_time - init_persona.a_mem.seq_chat[-1].created).total_seconds() / 60)
+            if last_chat_age > 480:
+                prev_convo_insert = ""
+                
+        if verbose:
+            print(prev_convo_insert)
+        
+        # Get current location details
+        curr_sector = maze.access_tile(init_persona.scratch.curr_tile)['sector']
+        curr_arena = maze.access_tile(init_persona.scratch.curr_tile)['arena']
+        curr_location = f"{curr_arena} in {curr_sector}"
+        
+        # Format retrieved memories
+        retrieved_str = ""
+        for key, vals in retrieved.items():
+            for v in vals:
+                retrieved_str += f"- {v.description}\n"
+        
+        # Format current conversation
+        convo_str = ""
+        for i in curr_chat:
+            convo_str += ": ".join(i) + "\n"
+        if convo_str == "":
+            convo_str = "[The conversation has not started yet -- start it!]"
+        
+        # Create persona ISS description
+        init_iss = f"Here is a brief description of {init_persona.scratch.name}.\n{init_persona.scratch.get_str_iss()}"
+        
+        return {
+            'init_iss': init_iss,
+            'init_persona_name': init_persona.scratch.name,
+            'retrieved_str': retrieved_str,
+            'prev_convo_insert': prev_convo_insert,
+            'curr_location': curr_location,
+            'curr_context': curr_context,
+            'target_persona_name': target_persona.scratch.name,
+            'convo_str': convo_str
+        }
+
+    def extract_first_json_dict(text: str) -> Dict[str, Any]:
+        """Extract the first JSON dictionary from text."""
+        try:
+            # Find JSON-like patterns
+            pattern = r'\{.*?\}'
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                json_str = match.group(0)
+                return json.loads(json_str)
+            return {}
+        except Exception as e:
+            if verbose:
+                print(f"Error extracting JSON: {e}")
+            return {}
+
+    def clean_up_response(response: str) -> Dict[str, Any]:
+        """Clean up the response to get the conversation data."""
+        try:
+            gpt_response = extract_first_json_dict(response)
+            
+            cleaned_dict = {}
+            cleaned = []
+            
+            # Extract values from the response dictionary
+            for key, val in gpt_response.items():
+                cleaned.append(val)
+                
+            # If we have the expected format
+            if len(cleaned) >= 2:
+                cleaned_dict["utterance"] = cleaned[0]
+                cleaned_dict["end"] = True
+                if "f" in str(cleaned[1]).lower():
+                    cleaned_dict["end"] = False
+            else:
+                # Default if we can't extract properly
+                cleaned_dict["utterance"] = gpt_response.get(init_persona.scratch.name, "...")
+                cleaned_dict["end"] = False
+                
+            return cleaned_dict
+        except Exception as e:
+            if verbose:
+                print(f"Error in clean up: {e}")
+            return get_fallback()
+
+    def validate_response(response: str) -> bool:
+        """Validate the JSON response."""
+        try:
+            json_dict = extract_first_json_dict(response)
+            return len(json_dict) > 0
+        except Exception as e:
+            if verbose:
+                print(f"Validation error: {e}")
+            return False
+
+    def get_fallback() -> Dict[str, Any]:
+        """Return fallback conversation data."""
+        return {
+            "utterance": "...",
+            "end": False
+        }
+    
+    # Generate prompt
+    prompt_inputs = create_prompt_input(
+        maze, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input
+    )
+    prompt = iterative_convo_template.format(**prompt_inputs)
+    
+    if verbose:
+        print(prompt)
+    
+    fallback = get_fallback()
+    
+    try:
+        response = chat_completion_request(prompt)
+        if not validate_response(response):
+            output = fallback
+        else:
+            output = clean_up_response(response)
+            
+    except Exception as e:
+        if verbose:
+            print(f"Error in generating iterative chat: {e}")
+        output = fallback
+
+    if verbose:
+        print(f"Initiator: {init_persona.scratch.name}")
+        print(f"Target: {target_persona.scratch.name}")
+        print(f"Generated utterance: {output.get('utterance', '...')}")
+        print(f"End conversation: {output.get('end', False)}")
+
+    return output, [output, prompt, prompt_inputs, fallback]
+
 if __name__ == "__main__":
     def test_get_random_alphanumeric():
         """Test get_random_alphanumeric function with default parameters."""
@@ -4104,7 +5381,1056 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"✗ Test failed with unexpected error: {str(e)}")
             return False
-           
+
+    def test_chat_poignancy():
+        """
+        Test the chat poignancy rating function.
+        
+        Test cases:
+        - Mundane conversations
+        - Moderately significant conversations
+        - Highly emotional conversations
+        """
+        print("\nTesting chat poignancy rating:")
+        
+        class MockScratch:
+            def __init__(self, name: str, traits: str):
+                self.name = name
+                self._traits = traits
+                
+            def get_str_iss(self):
+                return f"{self.name} is {self._traits}."
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str, traits: str):
+                self.scratch = MockScratch(name, traits)
+        
+        try:
+            # Setup - create a test persona
+            test_persona = MockPersona("Marcus", "sociable, sensitive, and thoughtful")
+            
+            # Test cases
+            test_cases = [
+                # Mundane conversations (should rate low)
+                "Marcus: 'Good morning, how are you?'\nCoworker: 'Good, thanks. You?'\nMarcus: 'Fine, thanks.'",
+                "Marcus: 'Do you know when the meeting starts?'\nCoworker: 'At 3pm I think.'\nMarcus: 'Thanks.'",
+                "Marcus: 'The weather is nice today.'\nFriend: 'Yes, it's perfect for a walk.'",
+                
+                # Moderately significant conversations (should rate medium)
+                "Marcus: 'I'm thinking of applying for that promotion.'\nFriend: 'That's great! You'd be perfect for it.'\nMarcus: 'Thanks, I'm a bit nervous though.'",
+                "Marcus: 'I haven't heard from Sarah in a while, is she okay?'\nFriend: 'She's been going through some stuff, but she's getting better.'",
+                "Friend: 'I really appreciated your help with that project.'\nMarcus: 'Happy to help. We make a good team.'",
+                
+                # Highly significant conversations (should rate high)
+                "Partner: 'We need to talk about our relationship.'\nMarcus: 'What's wrong?'\nPartner: 'I don't think this is working anymore.'",
+                "Marcus: 'Mom, I have something important to tell you. I got accepted to Harvard.'\nMother: 'Oh my goodness! I'm so proud of you!'",
+                "Friend: 'I've been diagnosed with cancer.'\nMarcus: 'I'm so sorry. I'm here for you, whatever you need.'"
+            ]
+            
+            results = []
+            
+            # Define a mock chat_completion_request function for testing
+            def mock_chat_completion(*args, **kwargs):
+                convo_text = args[0]
+                if "Good morning" in convo_text or "meeting starts" in convo_text or "weather" in convo_text:
+                    return "2"
+                elif "promotion" in convo_text or "Sarah" in convo_text or "appreciated" in convo_text:
+                    return "6"
+                else:
+                    return "9"
+            
+            # Save original function and set mock
+            global chat_completion_request
+            original_func = chat_completion_request
+            chat_completion_request = mock_chat_completion
+            
+            try:
+                for convo in test_cases:
+                    # Test execution
+                    rating, details = run_gpt_prompt_chat_poignancy(
+                        persona=test_persona,
+                        conversation_description=convo,
+                        verbose=True
+                    )
+                    
+                    # Assertions
+                    assert isinstance(rating, int), "Output should be an integer"
+                    assert 1 <= rating <= 10, "Rating should be between 1 and 10"
+                    
+                    results.append((test_persona.scratch.name, convo.split('\n')[0], rating))
+            finally:
+                # Restore original function
+                chat_completion_request = original_func
+            
+            # Success output
+            print("✓ Test passed:")
+            for persona_name, convo_start, rating in results:
+                poignancy_level = "Low" if rating <= 3 else "Medium" if rating <= 7 else "High"
+                print(f"  • {persona_name} - Conversation: {convo_start}...")
+                print(f"    Rating: {rating}/10 ({poignancy_level})")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+        
+    def test_focal_pt():
+        """
+        Test the focal point generation function.
+        
+        Test cases:
+        - Basic statement set
+        - Long statement list
+        - Edge case with minimal input
+        """
+        print("\nTesting focal point generation:")
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str):
+                self.name = name
+        
+        try:
+            # Setup
+            test_persona = MockPersona("Alex")
+            
+            # Test cases
+            test_cases = [
+                # Basic statement set
+                (
+                    "Alex is a college student. Alex studies computer science. Alex enjoys playing basketball. " +
+                    "Alex has a part-time job. Alex lives in a dormitory.",
+                    3
+                ),
+                
+                # Longer statement list
+                (
+                    "Sarah is a doctor. Sarah specializes in pediatrics. Sarah works at City Hospital. " +
+                    "Sarah is married. Sarah has two children. Sarah enjoys hiking. " +
+                    "Sarah volunteers at a free clinic on weekends. Sarah is learning to play the piano.",
+                    5
+                ),
+                
+                # Edge case with minimal input
+                (
+                    "John likes coffee.",
+                    2
+                )
+            ]
+            
+            results = []
+            
+            # Define a mock chat_completion_request function for testing
+            def mock_chat_completion(*args, **kwargs):
+                statements = args[0]
+                if "Alex" in statements:
+                    return "1) What is Alex studying?\n2) Where does Alex live?\n3) What are Alex's hobbies?"
+                elif "Sarah" in statements:
+                    return "1) What is Sarah's medical specialty?\n2) Where does Sarah work?\n3) What is Sarah's family situation?\n4) What are Sarah's hobbies?\n5) What volunteer work does Sarah do?"
+                else:
+                    return "1) Does John only like coffee?\n2) What other beverages might John enjoy?"
+            
+            # Save original function and set mock
+            global chat_completion_request
+            original_func = chat_completion_request
+            chat_completion_request = mock_chat_completion
+            
+            try:
+                for statements, n in test_cases:
+                    # Test execution
+                    focal_points, details = run_gpt_prompt_focal_pt(
+                        persona=test_persona,
+                        statements=statements,
+                        n=n,
+                        verbose=True
+                    )
+                    
+                    # Assertions
+                    assert isinstance(focal_points, list), "Output should be a list"
+                    assert len(focal_points) == n, f"Should generate exactly {n} focal points"
+                    assert all(isinstance(point, str) for point in focal_points), "All focal points should be strings"
+                    
+                    results.append((statements[:30] + "...", n, focal_points))
+            finally:
+                # Restore original function
+                chat_completion_request = original_func
+            
+            # Success output
+            print("✓ Test passed:")
+            for statements, n, focal_points in results:
+                print(f"  • Statements: {statements}")
+                print(f"    Generated {len(focal_points)} focal points:")
+                for i, point in enumerate(focal_points, 1):
+                    print(f"      {i}. {point}")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False             
+
+    def test_insight_and_guidance():
+        """
+        Test the insight and guidance function.
+        
+        Test cases:
+        - Basic statement set
+        - Long statement list
+        - Edge case with minimal input
+        """
+        print("\nTesting insight and guidance generation:")
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str):
+                self.name = name
+        
+        try:
+            # Setup
+            test_persona = MockPersona("Alex")
+            
+            # Test cases
+            test_cases = [
+                # Basic statement set
+                (
+                    "1. Alex is a college student.\n2. Alex studies computer science.\n3. Alex enjoys playing basketball." +
+                    "\n4. Alex has a part-time job.\n5. Alex lives in a dormitory.",
+                    2
+                ),
+                
+                # Longer statement list
+                (
+                    "1. Sarah is a doctor.\n2. Sarah specializes in pediatrics.\n3. Sarah works at City Hospital." +
+                    "\n4. Sarah is married.\n5. Sarah has two children.\n6. Sarah enjoys hiking." +
+                    "\n7. Sarah volunteers at a free clinic on weekends.\n8. Sarah is learning to play the piano.",
+                    3
+                ),
+                
+                # Edge case with minimal input
+                (
+                    "1. John likes coffee.",
+                    1
+                )
+            ]
+            
+            results = []
+            
+            # Define a mock chat_completion_request function for testing
+            def mock_chat_completion(*args, **kwargs):
+                statements = args[0]
+                if "Alex" in statements:
+                    return "1. Alex is balancing academics and extracurricular activities (because of 1, 2, 3, 4)\n2. Alex is living independently while in college (because of 1, 5)"
+                elif "Sarah" in statements:
+                    return "1. Sarah is dedicated to pediatric medicine (because of 1, 2, 3, 7)\n2. Sarah balances a demanding career with family life (because of 1, 3, 4, 5)\n3. Sarah pursues personal development through various hobbies (because of 6, 8)"
+                else:
+                    return "1. John has a preference for coffee (because of 1)"
+            
+            # Save original function and set mock
+            global chat_completion_request
+            original_func = chat_completion_request
+            chat_completion_request = mock_chat_completion
+            
+            try:
+                for statements, n in test_cases:
+                    # Test execution
+                    insights, details = run_gpt_prompt_insight_and_guidance(
+                        persona=test_persona,
+                        statements=statements,
+                        n=n,
+                        verbose=True
+                    )
+                    
+                    # Assertions
+                    assert isinstance(insights, dict), "Output should be a dictionary"
+                    assert len(insights) == n, f"Should generate exactly {n} insights"
+                    assert all(isinstance(evidence, list) for evidence in insights.values()), "All evidence should be lists"
+                    
+                    results.append((statements[:30] + "...", n, insights))
+            finally:
+                # Restore original function
+                chat_completion_request = original_func
+            
+            # Success output
+            print("✓ Test passed:")
+            for statements, n, insights in results:
+                print(f"  • Statements: {statements}")
+                print(f"    Generated {len(insights)} insights:")
+                for i, (insight, evidence) in enumerate(insights.items(), 1):
+                    print(f"      {i}. {insight} (because of {evidence})")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
+    def test_summarize_chat_ideas():
+        """
+        Test the chat ideas summarization function with actual LLM calls.
+        
+        Test cases:
+        - Basic statement summarization
+        - Different personas
+        """
+        print("\nTesting chat ideas summarization:")
+        
+        class MockScratch:
+            def __init__(self, name: str, traits: str):
+                self.name = name
+                self._traits = traits
+                self.currently = f"{name} is thinking about what to say"
+                
+            def get_str_curr_date_str(self):
+                return "Tuesday, January 1, 2025"
+                
+            def get_str_iss(self):
+                return f"{self.name} is {self._traits}."
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str, traits: str):
+                self.scratch = MockScratch(name, traits)
+        
+        try:
+            # Setup
+            test_persona1 = MockPersona("Alex", "friendly and outgoing")
+            test_persona2 = MockPersona("Taylor", "reserved and thoughtful")
+            
+            # Test cases
+            test_cases = [
+                # Basic statements
+                (
+                    test_persona1,
+                    test_persona2,
+                    "1. Alex enjoys hiking on weekends.\n2. Taylor recently started a new job.\n3. Both are interested in photography.\n4. They met at a conference last year.\n5. Alex is planning a trip next month.",
+                    "Alex and Taylor are at a coffee shop"
+                )
+            ]
+            
+            results = []
+            
+            for persona, target, statements, context in test_cases:
+                # Test execution
+                summary, details = run_gpt_prompt_summarize_chat_ideas(
+                    persona=persona,
+                    target_persona=target,
+                    statements=statements,
+                    curr_context=context,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(summary, str), "Output should be a string"
+                assert len(summary) > 0, "Should generate a non-empty summary"
+                
+                results.append((
+                    persona.scratch.name,
+                    target.scratch.name,
+                    context,
+                    summary
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for persona_name, target_name, context, summary in results:
+                print(f"  • {persona_name} -> {target_name} (Context: {context})")
+                print(f"    Summary: {summary}")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+        
+    def test_summarize_chat_relationship():
+        """
+        Test the relationship summarization function with actual LLM calls.
+        
+        Test cases:
+        - Basic relationship summarization
+        - Different types of relationships
+        """
+        print("\nTesting relationship summarization:")
+        
+        class MockScratch:
+            def __init__(self, name: str):
+                self.name = name
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str):
+                self.scratch = MockScratch(name)
+        
+        try:
+            # Setup
+            test_cases = [
+                # Friends
+                (
+                    MockPersona("Alex"),
+                    MockPersona("Taylor"),
+                    "1. Alex and Taylor met in college 3 years ago.\n2. They share interest in hiking and photography.\n3. Alex helped Taylor move apartments last month.\n4. They meet for coffee regularly.\n5. Taylor considers Alex a close friend."
+                )
+            ]
+            
+            results = []
+            
+            for persona1, persona2, statements in test_cases:
+                # Test execution
+                summary, details = run_gpt_prompt_summarize_chat_relationship(
+                    persona=persona1,
+                    target_persona=persona2,
+                    statements=statements,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(summary, str), "Output should be a string"
+                assert len(summary) > 0, "Should generate a non-empty summary"
+                assert persona1.scratch.name in summary or persona2.scratch.name in summary, "Summary should mention at least one persona"
+                
+                results.append((
+                    persona1.scratch.name,
+                    persona2.scratch.name,
+                    summary
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for name1, name2, summary in results:
+                print(f"  • Relationship between {name1} and {name2}:")
+                print(f"    Summary: {summary[:100]}...")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False       
+
+    def test_agent_chat():
+        """
+        Test the agent chat generation function with actual LLM calls.
+        
+        Test cases:
+        - Basic conversation generation
+        - Different contexts
+        """
+        print("\nTesting agent chat generation:")
+        
+        class MockTile:
+            def __init__(self, sector: str, arena: str):
+                self.sector = sector
+                self.arena = arena
+        
+        class MockMaze:
+            """Mock maze class for testing."""
+            def __init__(self, sector: str, arena: str):
+                self.tile = MockTile(sector, arena)
+                
+            def access_tile(self, tile):
+                return {
+                    'sector': self.tile.sector,
+                    'arena': self.tile.arena
+                }
+        
+        class MockNode:
+            """Mock memory node for testing."""
+            def __init__(self, description: str, object_name: str, created_time: Optional[datetime.datetime] = None):
+                self.description = description
+                self.object = object_name
+                self.created = created_time or datetime.datetime.now()
+        
+        class MockScratch:
+            def __init__(self, name: str, currently: str):
+                self.name = name
+                self.currently = currently
+                self.curr_time = datetime.datetime.now()
+                self.curr_tile = "A1"
+        
+        class MockMemory:
+            def __init__(self, chats: List[Any] = None):
+                self.seq_chat = chats or []
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str, currently: str, chats: List[Any] = None):
+                self.scratch = MockScratch(name, currently)
+                self.a_mem = MockMemory(chats)
+        
+        try:
+            # Test cases
+            test_cases = [
+                # Basic conversation
+                (
+                    "cafe",
+                    "sitting area",
+                    MockPersona(
+                        "Alex", 
+                        "Alex is sitting at a cafe, enjoying coffee"
+                    ),
+                    MockPersona(
+                        "Taylor", 
+                        "Taylor is looking for a place to sit"
+                    ),
+                    "Alex notices Taylor looking around for a seat",
+                    "Alex remembers Taylor from work and they had a good conversation last week",
+                    "Taylor recognizes Alex as a colleague who helped with a project recently"
+                )
+            ]
+            
+            results = []
+            
+            for sector, arena, persona1, persona2, context, idea1, idea2 in test_cases:
+                # Create test maze
+                test_maze = MockMaze(sector, arena)
+                
+                # Test execution
+                conversation, details = run_gpt_prompt_agent_chat(
+                    maze=test_maze,
+                    persona=persona1,
+                    target_persona=persona2,
+                    curr_context=context,
+                    init_summ_idea=idea1,
+                    target_summ_idea=idea2,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(conversation, list), "Conversation should be a list"
+                assert len(conversation) >= 2, "Should have at least 2 dialogue turns"
+                assert all(len(turn) == 2 for turn in conversation), "Each turn should have speaker and text"
+                assert conversation[0][0] == persona1.scratch.name, "First speaker should be initiator"
+                
+                results.append((
+                    f"{arena} in {sector}",
+                    persona1.scratch.name,
+                    persona2.scratch.name,
+                    len(conversation),
+                    conversation[:2]  # First two turns
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for location, name1, name2, turns, sample in results:
+                print(f"  • Conversation at {location} between {name1} and {name2}:")
+                print(f"    {turns} total dialogue turns")
+                for speaker, text in sample:
+                    print(f"    {speaker}: \"{text}\"")
+                print("    ...")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
+    def test_summarize_ideas():
+        """
+        Test the ideas summarization function with actual LLM calls.
+        
+        Test cases:
+        - Basic statement summarization
+        - Different question types
+        """
+        print("\nTesting ideas summarization:")
+        
+        class MockScratch:
+            def __init__(self, name: str):
+                self.name = name
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str):
+                self.scratch = MockScratch(name)
+        
+        try:
+            # Setup
+            test_persona = MockPersona("Alex")
+            
+            # Test cases
+            test_cases = [
+                # Career-related question
+                (
+                    "1. Alex graduated with a degree in Computer Science.\n2. Alex has been working as a software developer for 5 years.\n3. Alex enjoys hiking on weekends.\n4. Alex is learning to play the piano.\n5. Alex is considering a career change to data science.",
+                    "What aspects of your background prepare you for a role in data science?"
+                )
+            ]
+            
+            results = []
+            
+            for statements, question in test_cases:
+                # Test execution
+                summary, details = run_gpt_prompt_summarize_ideas(
+                    persona=test_persona,
+                    statements=statements,
+                    question=question,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(summary, str), "Output should be a string"
+                assert len(summary) > 0, "Should generate a non-empty summary"
+                
+                results.append((
+                    test_persona.scratch.name,
+                    question,
+                    summary
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for name, question, summary in results:
+                print(f"  • {name} was asked: \"{question}\"")
+                print(f"    Summary: {summary}")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
+    def test_generate_next_convo_line():
+        """
+        Test the next conversation line generation function with actual LLM calls.
+        
+        Test cases:
+        - Basic conversation continuation
+        - Different interlocutor contexts
+        """
+        print("\nTesting next conversation line generation:")
+        
+        class MockScratch:
+            def __init__(self, name: str, traits: str):
+                self.name = name
+                self._traits = traits
+                
+            def get_str_iss(self):
+                return f"{self.name} is {self._traits}."
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str, traits: str):
+                self.scratch = MockScratch(name, traits)
+        
+        try:
+            # Setup
+            test_persona = MockPersona("Alex", "friendly, outgoing, and works as a software engineer")
+            
+            # Test cases
+            test_cases = [
+                # Basic conversation
+                (
+                    "Taylor, a colleague from work",
+                    "Taylor: \"Hey Alex, how's that project coming along?\"\n",
+                    "Alex remembers that the project deadline is tomorrow and that there are still some bugs to fix."
+                )
+            ]
+            
+            results = []
+            
+            for interlocutor, prev_convo, summary in test_cases:
+                # Test execution
+                next_line, details = run_gpt_prompt_generate_next_convo_line(
+                    persona=test_persona,
+                    interlocutor_desc=interlocutor,
+                    prev_convo=prev_convo,
+                    retrieved_summary=summary,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(next_line, str), "Output should be a string"
+                assert len(next_line) > 0, "Should generate a non-empty response"
+                
+                results.append((
+                    test_persona.scratch.name,
+                    interlocutor,
+                    prev_convo,
+                    next_line
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for name, interlocutor, prev_convo, next_line in results:
+                print(f"  • {name} talking to {interlocutor}")
+                print(f"    Previous: {prev_convo.strip()}")
+                print(f"    Generated next line: \"{next_line}\"")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
+    def test_generate_whisper_inner_thought():
+        """
+        Test the whisper to statement translation function with actual LLM calls.
+        
+        Test cases:
+        - Basic thought translation
+        - Different types of thoughts
+        """
+        print("\nTesting whisper to statement translation:")
+        
+        class MockScratch:
+            def __init__(self, name: str):
+                self.name = name
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str):
+                self.scratch = MockScratch(name)
+        
+        try:
+            # Setup
+            test_persona = MockPersona("Alex")
+            
+            # Test cases
+            test_cases = [
+                # Basic thought
+                "I'm really stressed about this deadline",
+                
+                # More complex thought
+                "I wonder if anyone noticed my mistake in the presentation"
+            ]
+            
+            results = []
+            
+            for whisper in test_cases:
+                # Test execution
+                statement, details = run_gpt_prompt_generate_whisper_inner_thought(
+                    persona=test_persona,
+                    whisper=whisper,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(statement, str), "Output should be a string"
+                assert len(statement) > 0, "Should generate a non-empty statement"
+                assert test_persona.scratch.name in statement, "Statement should mention the persona name"
+                
+                results.append((
+                    test_persona.scratch.name,
+                    whisper,
+                    statement
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for name, whisper, statement in results:
+                print(f"  • {name}'s thought: \"{whisper}\"")
+                print(f"    Translated to: \"{statement}\"")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
+    def test_planning_thought_on_convo():
+        """
+        Test the planning thought generation function with actual LLM calls.
+        
+        Test cases:
+        - Basic conversation planning
+        - Different conversation contexts
+        """
+        print("\nTesting planning thought generation:")
+        
+        class MockScratch:
+            def __init__(self, name: str):
+                self.name = name
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str):
+                self.scratch = MockScratch(name)
+        
+        try:
+            # Setup
+            test_persona = MockPersona("Emma")
+            
+            # Test cases
+            test_cases = [
+                # Conversation with scheduling elements
+                """Emma: "Hi Mark, do you want to grab lunch tomorrow?"
+    Mark: "I'd love to, but I have a meeting from 12 to 1:30. Could we make it around 2?"
+    Emma: "That should work. The new Italian place on Main Street?"
+    Mark: "Perfect. I'll meet you there at 2pm tomorrow."
+    Emma: "Looking forward to it!"
+    """
+            ]
+            
+            results = []
+            
+            for conversation in test_cases:
+                # Test execution
+                planning_thought, details = run_gpt_prompt_planning_thought_on_convo(
+                    persona=test_persona,
+                    all_utt=conversation,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(planning_thought, str), "Output should be a string"
+                assert len(planning_thought) > 0, "Should generate a non-empty planning thought"
+                
+                results.append((
+                    test_persona.scratch.name,
+                    conversation.split("\n")[0],  # First line of conversation
+                    planning_thought
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for name, convo_start, planning_thought in results:
+                print(f"  • {name}'s conversation starting with: \"{convo_start}\"")
+                print(f"    Planning thought: \"{planning_thought}\"")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
+    def test_memo_on_convo():
+        """
+        Test the conversation memo generation function with actual LLM calls.
+        
+        Test cases:
+        - Basic conversation memo
+        - Different conversation contexts
+        """
+        print("\nTesting conversation memo generation:")
+        
+        class MockScratch:
+            def __init__(self, name: str):
+                self.name = name
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str):
+                self.scratch = MockScratch(name)
+        
+        try:
+            # Setup
+            test_persona = MockPersona("Jessica")
+            
+            # Test cases
+            test_cases = [
+                # Conversation with interesting elements
+                """Jessica: "Have you been to that new art exhibit downtown?"
+    Michael: "Yes, I went last weekend. It was fascinating how they combined traditional techniques with digital elements."
+    Jessica: "That sounds interesting! I've been wanting to go. Did you have a favorite piece?"
+    Michael: "There was this stunning landscape that transitions from oil painting to digital animation as you move around it. The artist spent three years developing the technique."
+    Jessica: "Wow, that's incredible. I'm definitely going to check it out this weekend."
+    """
+            ]
+            
+            results = []
+            
+            for conversation in test_cases:
+                # Test execution
+                memo, details = run_gpt_prompt_memo_on_convo(
+                    persona=test_persona,
+                    all_utt=conversation,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(memo, str), "Output should be a string"
+                assert len(memo) > 0, "Should generate a non-empty memo"
+                
+                results.append((
+                    test_persona.scratch.name,
+                    conversation.split("\n")[0],  # First line of conversation
+                    memo
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for name, convo_start, memo in results:
+                print(f"  • {name}'s conversation starting with: \"{convo_start}\"")
+                print(f"    Memo: \"{memo}\"")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
+    def test_generate_iterative_chat_utt():
+        """
+        Test the iterative chat utterance generation function with actual LLM calls.
+        
+        Test cases:
+        - Initial conversation start
+        - Continuing an existing conversation
+        """
+        print("\nTesting iterative chat utterance generation:")
+        
+        class MockNode:
+            """Mock memory node for testing."""
+            def __init__(self, description: str):
+                self.description = description
+        
+        class MockMemory:
+            """Mock memory for testing."""
+            def __init__(self, chats=None):
+                self.seq_chat = chats or []
+        
+        class MockScratch:
+            """Mock scratch for testing."""
+            def __init__(self, name: str, traits: str):
+                self.name = name
+                self._traits = traits
+                self.curr_time = datetime.datetime.now()
+                self.curr_tile = "A1"
+                
+            def get_str_iss(self):
+                return f"{self.name} is {self._traits}."
+        
+        class MockMaze:
+            """Mock maze class for testing."""
+            def __init__(self, sector: str, arena: str):
+                self.sector = sector
+                self.arena = arena
+                
+            def access_tile(self, tile):
+                return {
+                    'sector': self.sector,
+                    'arena': self.arena
+                }
+        
+        class MockPersona:
+            """Mock persona class for testing."""
+            def __init__(self, name: str, traits: str, chats=None):
+                self.scratch = MockScratch(name, traits)
+                self.a_mem = MockMemory(chats)
+        
+        try:
+            # Setup test maze and personas
+            test_maze = MockMaze("Cafe", "Seating Area")
+            
+            test_persona1 = MockPersona(
+                "Alex", 
+                "friendly, outgoing, and interested in art"
+            )
+            
+            test_persona2 = MockPersona(
+                "Jamie", 
+                "creative, thoughtful, and works as a graphic designer"
+            )
+            
+            # Test cases
+            test_cases = [
+                # Starting a conversation
+                (
+                    test_persona1,
+                    test_persona2,
+                    {
+                        "events": [MockNode("Alex saw Jamie looking at artwork yesterday")],
+                        "thoughts": [MockNode("Alex thinks Jamie has good taste in art")]
+                    },
+                    "Alex notices Jamie at the cafe",
+                    []  # Empty conversation
+                ),
+                
+                # Continuing a conversation
+                (
+                    test_persona1,
+                    test_persona2,
+                    {
+                        "events": [MockNode("Alex and Jamie discussed art exhibitions last week")],
+                        "thoughts": [MockNode("Alex is interested in Jamie's design work")]
+                    },
+                    "Alex and Jamie are sitting at a table with their coffees",
+                    [
+                        ["Alex", "Hi Jamie, nice to see you again!"],
+                        ["Jamie", "Hey Alex! Good to see you too. How have you been?"]
+                    ]
+                )
+            ]
+            
+            results = []
+            
+            for init_persona, target_persona, retrieved, context, curr_chat in test_cases:
+                # Test execution
+                output, details = run_gpt_generate_iterative_chat_utt(
+                    maze=test_maze,
+                    init_persona=init_persona,
+                    target_persona=target_persona,
+                    retrieved=retrieved,
+                    curr_context=context,
+                    curr_chat=curr_chat,
+                    verbose=True
+                )
+                
+                # Assertions
+                assert isinstance(output, dict), "Output should be a dictionary"
+                assert "utterance" in output, "Output should contain utterance"
+                assert "end" in output, "Output should contain end status"
+                assert isinstance(output["utterance"], str), "Utterance should be a string"
+                assert isinstance(output["end"], bool), "End status should be a boolean"
+                
+                results.append((
+                    init_persona.scratch.name,
+                    target_persona.scratch.name,
+                    len(curr_chat),
+                    output["utterance"],
+                    output["end"]
+                ))
+            
+            # Success output
+            print("✓ Test passed:")
+            for name1, name2, chat_len, utterance, end in results:
+                print(f"  • {name1} -> {name2} (conversation length: {chat_len})")
+                print(f"    Generated utterance: \"{utterance}\"")
+                print(f"    End conversation: {end}")
+                
+            return True
+            
+        except AssertionError as e:
+            print(f"✗ Test failed: {str(e)}")
+            return False
+        except Exception as e:
+            print(f"✗ Test failed with unexpected error: {str(e)}")
+            return False
+
     # Run the tests
     # test_get_random_alphanumeric()
     # print("########################################################")
@@ -4146,6 +6472,31 @@ if __name__ == "__main__":
     # print("########################################################")
     # test_convo_to_thoughts()
     # print("########################################################")
-    test_event_poignancy()
+    # test_event_poignancy()
+    # print("########################################################")
+    # test_thought_poignancy()
+    # print("########################################################")
+    # test_chat_poignancy()
+    # print("########################################################")
+    # test_focal_pt()
+    # print("########################################################")
+    # test_insight_and_guidance()
+    # print("########################################################")
+    # test_summarize_chat_ideas()
+    # print("########################################################")
+    # test_summarize_chat_relationship()
+    # print("########################################################")
+    # test_agent_chat()
+    # print("########################################################")
+    # test_summarize_ideas()
+    # print("########################################################")
+    # test_generate_next_convo_line()
+    # print("########################################################")
+    # test_generate_whisper_inner_thought()
+    # print("########################################################")
+    # test_planning_thought_on_convo()
+    # print("########################################################")
+    # test_memo_on_convo()
+    # print("########################################################")
+    test_generate_iterative_chat_utt()
     print("########################################################")
-    test_thought_poignancy()
