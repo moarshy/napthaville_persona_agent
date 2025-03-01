@@ -80,9 +80,6 @@ def gpt35_request(prompt: str) -> str:
     """Wrapper for GPT-3.5 requests."""
     return chat_completion_request(prompt, model="gpt-3.5-turbo")
 
-def instructor_request(prompt: str, response_model, model: str = "gpt-4o-mini") -> str:
-    """Wrapper for instructor requests."""
-
 # Example usage
 if __name__ == '__main__':
     def validate_response(response: str, **kwargs) -> bool:

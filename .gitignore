@@ -176,3 +176,5 @@ cython_debug/
 # Environment variables
 .env
 prompt_logs/
+
+test_data/

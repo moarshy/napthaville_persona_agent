@@ -1,0 +1,21 @@
+[
+    {
+        "name": "napthaville_memory_1",
+        "module": {"name": "napthaville_memory"},
+        "node": {"ip": "localhost"},
+        "config": {
+            "config_name": "napthaville_memory_config",
+            "world_name": "Napthaville",
+            "storage_config": {
+                "storage_type": "db",
+                "path": "napthaville_memory",
+                "storage_schema": {
+                    "napthaville_memory": {
+                        "type": {"type": "text", "primary_key": true},
+                        "data": {"type": "jsonb"}
+                    }
+                }
+            }
+        }
+    }
+]
