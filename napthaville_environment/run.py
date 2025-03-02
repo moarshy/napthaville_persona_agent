@@ -164,6 +164,7 @@ class NapthavilleEnvironment:
             arena_tile_path = await self.maze.get_tile_path(tile, TileLevel.ARENA)
             nearby_tiles_arena_path.append(arena_tile_path.model_dump())
 
+        curr_tile_data = await self.maze.access_tile(curr_tile)
         return {
             "success": True,
             "curr_tile": curr_tile.model_dump(),
@@ -171,7 +172,8 @@ class NapthavilleEnvironment:
             "nearby_tiles": [tile.model_dump() for tile in nearby_tiles.tiles],
             "curr_arena_path": curr_arena_path.model_dump(),
             "nearby_tiles_data": nearby_tiles_data,
-            "nearby_tiles_arena_path": nearby_tiles_arena_path
+            "nearby_tiles_arena_path": nearby_tiles_arena_path,
+            "curr_tile_data": curr_tile_data.model_dump()
         }
 
 async def run(module_run: Dict, *args, **kwargs) -> Dict:

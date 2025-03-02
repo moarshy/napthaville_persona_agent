@@ -26,11 +26,13 @@ class AvailableFunctions(str, Enum):
     INIT = "init"
     GET_MEMORY = "get_memory"
     SET_MEMORY = "set_memory"
+    GET_PERSONAS = "get_personas"  # New function to list all personas
 
 class GetMemoryInput(BaseModel):
     """Schema for get memory input"""
     memory_type: MemoryType = MemoryType.ALL
     subtype: Optional[AssociativeSubType] = None
+    persona_name: Optional[str] = None  # Added persona_name field
 
 class SetMemoryInput(BaseModel):
     """Schema for set memory input"""
@@ -38,6 +40,7 @@ class SetMemoryInput(BaseModel):
     operation: OperationType = OperationType.ADD
     data: str
     subtype: Optional[AssociativeSubType] = None
+    persona_name: Optional[str] = None  # Added persona_name field
 
 class InputSchema(BaseModel):
     """Schema for function input"""
@@ -48,6 +51,7 @@ class MemoryData(BaseModel):
     """Schema for memory data"""
     memory_type: MemoryType
     memory_data: str
+    persona_name: Optional[str] = None  # Added persona_name field
 
 class AssociativeMemoryData(BaseModel):
     """Schema for associative memory data"""
@@ -58,5 +62,5 @@ class AssociativeMemoryData(BaseModel):
 class OutputSchema(BaseModel):
     """Schema for output"""
     success: bool
-    data: Optional[Union[List[MemoryData], Dict]] = None
+    data: Optional[Union[List[MemoryData], List[str], Dict]] = None  # Updated to handle persona lists
     error: Optional[str] = None

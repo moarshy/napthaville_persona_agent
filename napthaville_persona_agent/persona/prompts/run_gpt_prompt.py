@@ -429,7 +429,7 @@ def run_gpt_prompt_task_decomp(
 def run_gpt_prompt_action_sector(
     action_description: str,
     persona: Any,
-    maze: Any,
+    maze_data: Any,
     test_input: Optional[List[str]] = None,
     verbose: bool = False
 ) -> Tuple[str, List[Any]]:
@@ -439,7 +439,7 @@ def run_gpt_prompt_action_sector(
     Args:
         action_description: Description of the action
         persona: The Persona class instance
-        maze: The Maze class instance
+        maze_data: The maze data
         test_input: Optional test inputs for debugging
         verbose: Whether to print debug information
     
@@ -451,7 +451,7 @@ def run_gpt_prompt_action_sector(
     def create_prompt_input(
         action_description: str,
         persona: Any,
-        maze: Any,
+        maze_data: Any,
         test_input: Optional[List[str]] = None
     ) -> dict:
         """Create the formatted input for the prompt template."""
@@ -459,8 +459,8 @@ def run_gpt_prompt_action_sector(
             return test_input
 
         # Get current world and sector info
-        act_world = maze.access_tile(persona.scratch.curr_tile)['world']
-        current_sector = maze.access_tile(persona.scratch.curr_tile)['sector']
+        act_world = maze_data["curr_tile_data"]["world"]
+        current_sector = maze_data["curr_tile_data"]["sector"]
         
         # Parse action description
         action = action_description
@@ -516,7 +516,7 @@ def run_gpt_prompt_action_sector(
 
     # Generate prompt
     prompt_inputs = create_prompt_input(
-        action_description, persona, maze, test_input
+        action_description, persona, maze_data, test_input
     )
     prompt = action_sector_template.format(**prompt_inputs)
     
@@ -524,7 +524,7 @@ def run_gpt_prompt_action_sector(
     
     try:
         # Get accessible sectors for validation
-        current_world = maze.access_tile(persona.scratch.curr_tile)['world']
+        current_world = maze_data["curr_tile_data"]["world"]
         accessible_sectors = [
             s.strip() for s in 
             persona.s_mem.get_str_accessible_sectors(current_world).split(",")
@@ -550,7 +550,7 @@ def run_gpt_prompt_action_sector(
 def run_gpt_prompt_action_arena(
     action_description: str,
     persona: Any,
-    maze: Any, 
+    maze_data: Any, 
     act_world: str,
     act_sector: str,
     test_input: Optional[List[str]] = None,
@@ -562,7 +562,7 @@ def run_gpt_prompt_action_arena(
     Args:
         action_description: Description of the action
         persona: The Persona class instance
-        maze: The Maze class instance
+        maze_data: The maze data
         act_world: The current world
         act_sector: The current sector
         test_input: Optional test inputs for debugging
@@ -576,7 +576,7 @@ def run_gpt_prompt_action_arena(
     def create_prompt_input(
         action_description: str,
         persona: Any,
-        maze: Any,
+        maze_data: Any,
         act_world: str,
         act_sector: str,
         test_input: Optional[List[str]] = None
@@ -604,7 +604,7 @@ def run_gpt_prompt_action_arena(
         ]
         accessible_arena_str = ", ".join(fin_accessible_arenas)
 
-        current_arena = maze.access_tile(persona.scratch.curr_tile)["arena"]
+        current_arena = maze_data["curr_tile_data"]["arena"]
         
         return {
             'name': persona.scratch.get_str_name(),
@@ -642,7 +642,7 @@ def run_gpt_prompt_action_arena(
 
     # Generate prompt
     prompt_inputs = create_prompt_input(
-        action_description, persona, maze, act_world, act_sector, test_input
+        action_description, persona, maze_data, act_world, act_sector, test_input
     )
     prompt = action_arena_template.format(**prompt_inputs)
     
@@ -676,7 +676,7 @@ def run_gpt_prompt_action_arena(
 def run_gpt_prompt_action_game_object(
     action_description: str,
     persona: Any,
-    maze: Any,
+    maze_data: Any,
     temp_address: str,
     test_input: Optional[List[str]] = None,
     verbose: bool = False
@@ -687,7 +687,7 @@ def run_gpt_prompt_action_game_object(
     Args:
         action_description: Description of the action
         persona: The Persona class instance
-        maze: The Maze class instance
+        maze_data: The maze data
         temp_address: The current address (world:sector:arena)
         test_input: Optional test inputs for debugging
         verbose: Whether to print debug information
@@ -1343,6 +1343,7 @@ def run_gpt_prompt_new_decomp_schedule(
 
 def run_gpt_prompt_decide_to_talk(
     persona: Any,
+    target_persona_name,
     target_persona: Any,
     retrieved: Dict[str, List[Any]],
     test_input: Optional[List[str]] = None,
@@ -1422,22 +1423,22 @@ def run_gpt_prompt_decide_to_talk(
         )
         
         target_desc = get_activity_description(
-            target_persona.scratch.act_description,
-            target_persona.scratch.planned_path,
-            "waiting" in target_persona.scratch.act_description
+            target_persona.act_description,
+            target_persona.planned_path,
+            "waiting" in target_persona.act_description
         )
 
         return {
             'context': create_context(retrieved),
             'current_time': current_time,
             'persona_name': init_persona.name,
-            'target_name': target_persona.name,
+            'target_name': target_persona_name,
             'last_chat_time': last_chat_time,
             'last_chat_topic': last_chat_topic,
             'persona_status': f"{init_persona.name} {persona_desc}",
-            'target_status': f"{target_persona.name} {target_desc}",
+            'target_status': f"{target_persona_name} {target_desc}",
             'persona_name2': init_persona.name,
-            'target_name2': target_persona.name
+            'target_name2': target_persona_name
         }
 
     def clean_up_response(response: str) -> str:
@@ -1485,6 +1486,7 @@ def run_gpt_prompt_decide_to_talk(
 
 def run_gpt_prompt_decide_to_react(
     persona: Any,
+    target_persona_name: str,
     target_persona: Any,
     retrieved: Dict[str, List[Any]],
     test_input: Optional[List[str]] = None,
@@ -1495,6 +1497,7 @@ def run_gpt_prompt_decide_to_react(
     
     Args:
         persona: The initiating Persona instance
+        target_persona_name: The target Persona name
         target_persona: The target Persona instance
         retrieved: Dictionary containing relevant events and thoughts
         test_input: Optional test inputs for debugging
@@ -1530,17 +1533,17 @@ def run_gpt_prompt_decide_to_react(
 
         # Get activity descriptions and locations
         def get_activity_desc(p: Any) -> str:
-            act_desc = p.scratch.act_description
+            act_desc = p.act_description
             if "(" in act_desc:
                 act_desc = act_desc.split("(")[-1][:-1]
                 
             loc = ""
-            if ":" in p.scratch.act_address:
-                arena = p.scratch.act_address.split(":")[-1]
-                sector = p.scratch.act_address.split(":")[-2]
+            if ":" in p.act_address:
+                arena = p.act_address.split(":")[-1]
+                sector = p.act_address.split(":")[-2]
                 loc = f" at {arena} in {sector}"
                 
-            if len(p.scratch.planned_path) == 0:
+            if len(p.planned_path) == 0:
                 return f"{p.name} is already {act_desc}{loc}"
             return f"{p.name} is on the way to {act_desc}{loc}"
 
@@ -1551,7 +1554,7 @@ def run_gpt_prompt_decide_to_react(
         if "(" in init_act:
             init_act = init_act.split("(")[-1][:-1]
             
-        target_act = target_persona.scratch.act_description
+        target_act = target_persona.act_description
         if "(" in target_act:
             target_act = target_act.split("(")[-1][:-1]
 
@@ -1562,7 +1565,7 @@ def run_gpt_prompt_decide_to_react(
             'target_desc': target_desc,
             'init_name': init_persona.name,
             'init_act': init_act,
-            'target_name': target_persona.name,
+            'target_name': target_persona_name,
             'target_act': target_act
         }
 
@@ -2682,7 +2685,7 @@ def run_gpt_prompt_insight_and_guidance(
 
     return output, [output, prompt, gpt_param, prompt_inputs, fallback]
 
-def run_gpt_prompt_summarize_chat_ideas(
+def run_gpt_prompt_agent_chat_summarize_ideas(
     persona: Any,
     target_persona: Any,
     statements: str,
@@ -2774,7 +2777,7 @@ def run_gpt_prompt_summarize_chat_ideas(
 
     return output, [output, prompt, prompt_inputs, fallback]
 
-def run_gpt_prompt_summarize_chat_relationship(
+def run_gpt_prompt_agent_chat_summarize_relationship(
     persona: Any,
     target_persona: Any,
     statements: str,
@@ -3435,7 +3438,7 @@ def run_gpt_prompt_memo_on_convo(
     return output, [output, prompt, prompt_inputs, fallback]
 
 def run_gpt_generate_iterative_chat_utt(
-    maze: Any,
+    maze_data: Any,
     init_persona: Any,
     target_persona: Any,
     retrieved: Dict[str, List[Any]],
@@ -3448,7 +3451,7 @@ def run_gpt_generate_iterative_chat_utt(
     Generate the next utterance in an iterative conversation between two personas.
     
     Args:
-        maze: The Maze class instance for location information
+        maze_data: The Maze class instance for location information
         init_persona: The initiating Persona instance
         target_persona: The target Persona instance
         retrieved: Dictionary containing relevant memory items
@@ -3463,7 +3466,7 @@ def run_gpt_generate_iterative_chat_utt(
         - List containing [output, prompt, prompt_input, fallback]
     """
     def create_prompt_input(
-        maze: Any,
+        maze_data: Any,
         init_persona: Any,
         target_persona: Any,
         retrieved: Dict[str, List[Any]],
@@ -3497,8 +3500,8 @@ def run_gpt_generate_iterative_chat_utt(
             print(prev_convo_insert)
         
         # Get current location details
-        curr_sector = maze.access_tile(init_persona.scratch.curr_tile)['sector']
-        curr_arena = maze.access_tile(init_persona.scratch.curr_tile)['arena']
+        curr_sector = maze_data['curr_tile_data']['sector']
+        curr_arena = maze_data['curr_tile_data']['arena']
         curr_location = f"{curr_arena} in {curr_sector}"
         
         # Format retrieved memories
@@ -3591,7 +3594,7 @@ def run_gpt_generate_iterative_chat_utt(
     
     # Generate prompt
     prompt_inputs = create_prompt_input(
-        maze, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input
+        maze_data, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input
     )
     prompt = iterative_convo_template.format(**prompt_inputs)
     

@@ -6,7 +6,8 @@ from typing import Dict, Any, Union, Optional
 
 from naptha_sdk.storage.schemas import (
     StorageType,
-    CreateStorageRequest
+    CreateStorageRequest,
+    ReadStorageRequest
 )
 from naptha_sdk.storage.storage_client import StorageClient
 from naptha_sdk.schemas import NodeConfigUser
@@ -69,34 +70,37 @@ class NapthavilleMemory:
             return OutputSchema(success=False, error=str(e))
 
     async def get_memory(self, inputs: Union[Dict, GetMemoryInput]) -> OutputSchema:
-        """Get memory by type"""
+        """Get memory by type and optional persona"""
         try:
             if isinstance(inputs, Dict):
                 inputs = GetMemoryInput(**inputs)
             
             memories = []
+            persona_name = inputs.persona_name if hasattr(inputs, 'persona_name') else None
 
             if inputs.memory_type in [MemoryType.ALL, MemoryType.SPATIAL]:
-                spatial_result = await self.spatial.get()
+                spatial_result = await self.spatial.get(persona_name)
                 if spatial_result["success"] and spatial_result["data"]:
                     memories.append(MemoryData(
                         memory_type=MemoryType.SPATIAL,
-                        memory_data=json.dumps(spatial_result["data"])
+                        memory_data=json.dumps(spatial_result["data"]),
+                        persona_name=persona_name
                     ))
 
             if inputs.memory_type in [MemoryType.ALL, MemoryType.SCRATCH]:
-                scratch_result = await self.scratch.get()
+                scratch_result = await self.scratch.get(persona_name)
                 if scratch_result["success"] and scratch_result["data"]:
                     memories.append(MemoryData(
                         memory_type=MemoryType.SCRATCH,
-                        memory_data=json.dumps(scratch_result["data"])
+                        memory_data=json.dumps(scratch_result["data"]),
+                        persona_name=persona_name
                     ))
 
             if inputs.memory_type in [MemoryType.ALL, MemoryType.ASSOCIATIVE]:
                 try:
-                    embeddings = await self.associative.get_embeddings()
-                    nodes = await self.associative.get_nodes()
-                    kw_strength = await self.associative.get_kw_strength()
+                    embeddings = await self.associative.get_embeddings(persona_name)
+                    nodes = await self.associative.get_nodes(persona_name)
+                    kw_strength = await self.associative.get_kw_strength(persona_name)
                     
                     if all(r["success"] for r in [embeddings, nodes, kw_strength]):
                         if inputs.subtype:
@@ -109,7 +113,8 @@ class NapthavilleMemory:
                             
                             memories.append(MemoryData(
                                 memory_type=MemoryType.ASSOCIATIVE,
-                                memory_data=json.dumps(data)
+                                memory_data=json.dumps(data),
+                                persona_name=persona_name
                             ))
                         else:
                             # Get all associative memory types
@@ -120,7 +125,8 @@ class NapthavilleMemory:
                             }
                             memories.append(MemoryData(
                                 memory_type=MemoryType.ASSOCIATIVE,
-                                memory_data=json.dumps(data)
+                                memory_data=json.dumps(data),
+                                persona_name=persona_name
                             ))
                 except Exception as e:
                     logger.error(f"Error processing associative memory: {str(e)}")
@@ -133,22 +139,24 @@ class NapthavilleMemory:
             return OutputSchema(success=False, error=str(e))
 
     async def set_memory(self, inputs: Union[Dict, SetMemoryInput]) -> OutputSchema:
-        """Set memory by type"""
+        """Set memory by type and optional persona"""
         try:
             if isinstance(inputs, Dict):
                 inputs = SetMemoryInput(**inputs)
 
+            persona_name = inputs.persona_name if hasattr(inputs, 'persona_name') else None
+
             if inputs.memory_type == MemoryType.SPATIAL:
                 if inputs.operation == OperationType.ADD:
-                    result = await self.spatial.add(inputs.data)
+                    result = await self.spatial.add(inputs.data, persona_name)
                 else:
-                    result = await self.spatial.update(inputs.data)
+                    result = await self.spatial.update(inputs.data, persona_name)
 
             elif inputs.memory_type == MemoryType.SCRATCH:
                 if inputs.operation == OperationType.ADD:
-                    result = await self.scratch.add(inputs.data)
+                    result = await self.scratch.add(inputs.data, persona_name)
                 else:
-                    result = await self.scratch.update(inputs.data)
+                    result = await self.scratch.update(inputs.data, persona_name)
 
             elif inputs.memory_type == MemoryType.ASSOCIATIVE:
                 if not inputs.subtype:
@@ -156,21 +164,21 @@ class NapthavilleMemory:
 
                 if inputs.subtype == AssociativeSubType.EMBEDDINGS:
                     if inputs.operation == OperationType.ADD:
-                        result = await self.associative.add_embedding(inputs.data)
+                        result = await self.associative.add_embedding(inputs.data, persona_name)
                     else:
-                        result = await self.associative.update_embedding(inputs.data)
+                        result = await self.associative.update_embedding(inputs.data, persona_name)
                 
                 elif inputs.subtype == AssociativeSubType.NODES:
                     if inputs.operation == OperationType.ADD:
-                        result = await self.associative.add_node(inputs.data)
+                        result = await self.associative.add_node(inputs.data, persona_name)
                     else:
-                        result = await self.associative.update_node(inputs.data)
+                        result = await self.associative.update_node(inputs.data, persona_name)
                 
                 elif inputs.subtype == AssociativeSubType.KW_STRENGTH:
                     if inputs.operation == OperationType.ADD:
-                        result = await self.associative.add_kw_strength(inputs.data)
+                        result = await self.associative.add_kw_strength(inputs.data, persona_name)
                     else:
-                        result = await self.associative.update_kw_strength(inputs.data)
+                        result = await self.associative.update_kw_strength(inputs.data, persona_name)
                 else:
                     return OutputSchema(success=False, error="Invalid associative memory subtype")
             else:
@@ -184,6 +192,33 @@ class NapthavilleMemory:
 
         except Exception as e:
             logger.error(f"Error setting memory: {str(e)}")
+            return OutputSchema(success=False, error=str(e))
+            
+    async def get_personas(self) -> OutputSchema:
+        """Get a list of all personas with memories"""
+        try:
+            # Read all records and extract unique persona names
+            request = ReadStorageRequest(
+                storage_type=StorageType.DATABASE,
+                path=self.deployment["config"]["storage_config"]["path"]
+            )
+            result = await self.storage_client.execute(request)
+            
+            if not result.data:
+                return OutputSchema(success=True, data=[])
+                
+            personas = set()
+            for record in result.data:
+                # Extract persona name from type field (format: persona_name_memory_type)
+                type_value = record.get("type", "")
+                parts = type_value.split("_", 1)
+                if len(parts) > 1:
+                    personas.add(parts[0])
+            
+            return OutputSchema(success=True, data=list(personas))
+            
+        except Exception as e:
+            logger.error(f"Error getting personas: {str(e)}")
             return OutputSchema(success=False, error=str(e))
 
 async def run(module_run: Dict, *args, **kwargs) -> Dict:
@@ -237,212 +272,175 @@ if __name__ == "__main__":
         init_result = await run(init_run)
         logger.info(f"Initialization result: {init_result}")
         
-        # Test spatial memory
-        logger.info("\nTesting spatial memory...")
-        try:
-            with open(test_data_dir / "spatial_memory.json") as f:
-                spatial_data = json.load(f)
-            
-            # Add spatial memory
-            spatial_add = {
-                "inputs": {
-                    "function_name": "set_memory",
-                    "function_input_data": {
-                        "memory_type": "spatial",
-                        "operation": "add",
-                        "data": json.dumps(spatial_data)
-                    }
-                },
-                "deployment": deployment
-            }
-            result = await run(spatial_add)
-            logger.info(f"Add spatial memory result: {result}")
-
-            # Get spatial memory
-            spatial_get = {
-                "inputs": {
-                    "function_name": "get_memory",
-                    "function_input_data": {
-                        "memory_type": "spatial"
-                    }
-                },
-                "deployment": deployment
-            }
-            result = await run(spatial_get)
-            logger.info(f"Get spatial memory result: {result}")
-        except Exception as e:
-            logger.error(f"Error in spatial memory test: {e}")
-
-        # # Test scratch memory
-        # time.sleep(5)
-        # logger.info("\nTesting scratch memory...")
+        # Test spatial memory for different personas
+        logger.info("\nTesting spatial memory for different personas...")
+        personas = ["Isabella", "Maria", "Klaus"]
+        
         # try:
-        #     with open(test_data_dir / "scratch.json") as f:
-        #         scratch_data = json.load(f)
+        #     with open(test_data_dir / "spatial_memory.json") as f:
+        #         spatial_data = json.load(f)
             
-        #     # Add scratch memory
-        #     scratch_add = {
+        #     # Add spatial memory for each persona
+        #     for persona in personas:
+        #         spatial_add = {
+        #             "inputs": {
+        #                 "function_name": "set_memory",
+        #                 "function_input_data": {
+        #                     "memory_type": "spatial",
+        #                     "operation": "add",
+        #                     "data": json.dumps(spatial_data),
+        #                     "persona_name": persona
+        #                 }
+        #             },
+        #             "deployment": deployment
+        #         }
+        #         result = await run(spatial_add)
+        #         logger.info(f"Add spatial memory for {persona} result: {result}")
+
+        #     # Get spatial memory for each persona
+        #     for persona in personas:
+        #         spatial_get = {
+        #             "inputs": {
+        #                 "function_name": "get_memory",
+        #                 "function_input_data": {
+        #                     "memory_type": "spatial",
+        #                     "persona_name": persona
+        #                 }
+        #             },
+        #             "deployment": deployment
+        #         }
+        #         result = await run(spatial_get)
+        #         logger.info(f"Get spatial memory for {persona} result: {result}")
+                
+        #     # Get all personas with memories
+        #     personas_get = {
+        #         "inputs": {
+        #             "function_name": "get_personas",
+        #             "function_input_data": {}
+        #         },
+        #         "deployment": deployment
+        #     }
+        #     result = await run(personas_get)
+        #     logger.info(f"Get all personas result: {result}")
+        # except Exception as e:
+        #     logger.error(f"Error in spatial memory test: {e}")
+
+        # # Test scratch memory for different personas
+        # logger.info("\nTesting scratch memory for different personas...")
+        # try:
+        #     scratch_data = {"notes": ["Initial scratch note for testing"]}
+            
+        #     # Add scratch memory for each persona
+        #     for persona in personas:
+        #         scratch_add = {
+        #             "inputs": {
+        #                 "function_name": "set_memory",
+        #                 "function_input_data": {
+        #                     "memory_type": "scratch",
+        #                     "operation": "add",
+        #                     "data": json.dumps(scratch_data),
+        #                     "persona_name": persona
+        #                 }
+        #             },
+        #             "deployment": deployment
+        #         }
+        #         result = await run(scratch_add)
+        #         logger.info(f"Add scratch memory for {persona} result: {result}")
+                
+        #     # Update scratch memory for first persona
+        #     updated_scratch_data = {"notes": ["Updated scratch note", "Another note"]}
+        #     scratch_update = {
         #         "inputs": {
         #             "function_name": "set_memory",
         #             "function_input_data": {
         #                 "memory_type": "scratch",
-        #                 "operation": "add",
-        #                 "data": json.dumps(scratch_data)
+        #                 "operation": "update",
+        #                 "data": json.dumps(updated_scratch_data),
+        #                 "persona_name": personas[0]
         #             }
         #         },
         #         "deployment": deployment
         #     }
-        #     result = await run(scratch_add)
-        #     logger.info(f"Add scratch memory result: {result}")
-
-        #     # Get scratch memory
-        #     scratch_get = {
-        #         "inputs": {
-        #             "function_name": "get_memory",
-        #             "function_input_data": {
-        #                 "memory_type": "scratch"
-        #             }
-        #         },
-        #         "deployment": deployment
-        #     }
-        #     result = await run(scratch_get)
-        #     logger.info(f"Get scratch memory result: {result}")
-        # except Exception as e:
-        #     logger.error(f"Error in scratch memory test: {e}")
-
-        # # Test associative memory
-        # time.sleep(5)
-        # logger.info("\nTesting associative memory...")
-        # for subtype in ["embeddings", "nodes", "kw_strength"]:
-        #     try:
-        #         with open(test_data_dir / "associative_memory" / f"{subtype}.json") as f:
-        #             assoc_data = json.load(f)
+        #     result = await run(scratch_update)
+        #     logger.info(f"Update scratch memory for {personas[0]} result: {result}")
                 
-        #         # Add associative memory
-        #         assoc_add = {
-        #             "inputs": {
-        #                 "function_name": "set_memory",
-        #                 "function_input_data": {
-        #                     "memory_type": "associative",
-        #                     "subtype": subtype,
-        #                     "operation": "add",
-        #                     "data": json.dumps(assoc_data)
-        #                 }
-        #             },
-        #             "deployment": deployment
-        #         }
-        #         result = await run(assoc_add)
-        #         logger.info(f"Add associative memory ({subtype}) result: {result}")
-
-        #         # Get associative memory
-        #         assoc_get = {
+        #     # Get scratch memory for each persona
+        #     for persona in personas:
+        #         scratch_get = {
         #             "inputs": {
         #                 "function_name": "get_memory",
         #                 "function_input_data": {
-        #                     "memory_type": "associative",
-        #                     "subtype": subtype
+        #                     "memory_type": "scratch",
+        #                     "persona_name": persona
         #                 }
         #             },
         #             "deployment": deployment
         #         }
-        #         result = await run(assoc_get)
-        #         logger.info(f"Get associative memory ({subtype}) result: {result}")
-        #     except Exception as e:
-        #         logger.error(f"Error in associative memory ({subtype}) test: {e}")
-
-        # # Test getting all memory
-        # time.sleep(5)
-        # logger.info("\nTesting get all memory...")
-        # try:
-        #     all_get = {
-        #         "inputs": {
-        #             "function_name": "get_memory",
-        #             "function_input_data": {
-        #                 "memory_type": "all"
-        #             }
-        #         },
-        #         "deployment": deployment
-        #     }
-        #     result = await run(all_get)
-        #     logger.info(f"Get all memory result: {result}")
+        #         result = await run(scratch_get)
+        #         logger.info(f"Get scratch memory for {persona} result: {result}")
         # except Exception as e:
-        #     logger.error(f"Error in get all memory test: {e}")
+        #     logger.error(f"Error in scratch memory test: {e}")
 
-        # # Final test: Update all memory types and verify
-        # logger.info("\nTesting update all memories with {'updated': 'yes'}...")
-        # time.sleep(5)
-        # update_data = json.dumps({"updated": "yes"})
+        # Test associative memory for different personas
+        logger.info("\nTesting associative memory for different personas...")
+        for subtype in ["embeddings", "nodes", "kw_strength"]:
+            try:
+                assoc_data = {"sample": f"Test {subtype} data"}
+                
+                # Add associative memory for each persona
+                for persona in personas:
+                    assoc_add = {
+                        "inputs": {
+                            "function_name": "set_memory",
+                            "function_input_data": {
+                                "memory_type": "associative",
+                                "subtype": subtype,
+                                "operation": "add",
+                                "data": json.dumps(assoc_data),
+                                "persona_name": persona
+                            }
+                        },
+                        "deployment": deployment
+                    }
+                    result = await run(assoc_add)
+                    logger.info(f"Add associative memory ({subtype}) for {persona} result: {result}")
 
-        # # Update spatial memory
-        # spatial_update = {
-        #     "inputs": {
-        #         "function_name": "set_memory",
-        #         "function_input_data": {
-        #             "memory_type": "spatial",
-        #             "operation": "update",
-        #             "data": update_data
-        #         }
-        #     },
-        #     "deployment": deployment
-        # }
-        # result = await run(spatial_update)
-        # logger.info(f"Update spatial memory result: {result}")
+                # Get associative memory for each persona
+                for persona in personas:
+                    assoc_get = {
+                        "inputs": {
+                            "function_name": "get_memory",
+                            "function_input_data": {
+                                "memory_type": "associative",
+                                "subtype": subtype,
+                                "persona_name": persona
+                            }
+                        },
+                        "deployment": deployment
+                    }
+                    result = await run(assoc_get)
+                    logger.info(f"Get associative memory ({subtype}) for {persona} result: {result}")
+            except Exception as e:
+                logger.error(f"Error in associative memory ({subtype}) test: {e}")
 
-        # # Update scratch memory
-        # scratch_update = {
-        #     "inputs": {
-        #         "function_name": "set_memory",
-        #         "function_input_data": {
-        #             "memory_type": "scratch",
-        #             "operation": "update",
-        #             "data": update_data
-        #         }
-        #     },
-        #     "deployment": deployment
-        # }
-        # result = await run(scratch_update)
-        # logger.info(f"Update scratch memory result: {result}")
-
-        # # Update associative memory components
-        # for subtype in ["embeddings", "nodes", "kw_strength"]:
-        #     assoc_update = {
-        #         "inputs": {
-        #             "function_name": "set_memory",
-        #             "function_input_data": {
-        #                 "memory_type": "associative",
-        #                 "subtype": subtype,
-        #                 "operation": "update",
-        #                 "data": update_data
-        #             }
-        #         },
-        #         "deployment": deployment
-        #     }
-        #     result = await run(assoc_update)
-        #     logger.info(f"Update associative memory ({subtype}) result: {result}")
-
-        # # Verify updates by getting all memory
-        # logger.info("\nVerifying updates...")
-        # verify_get = {
-        #     "inputs": {
-        #         "function_name": "get_memory",
-        #         "function_input_data": {
-        #             "memory_type": "all"
-        #         }
-        #     },
-        #     "deployment": deployment
-        # }
-        # result = await run(verify_get)
-        
-        # # Pretty print the verification results
-        # if result["success"]:
-        #     logger.info("Update verification results:")
-        #     for memory in result["data"]:
-        #         memory_type = memory["memory_type"]
-        #         memory_data = json.loads(memory["memory_data"])
-        #         logger.info(f"\n{memory_type} memory data:")
-        #         logger.info(json.dumps(memory_data, indent=2))
-        # else:
-        #     logger.error(f"Failed to verify updates: {result['error']}")
+        # Test getting all memory types for a specific persona
+        logger.info("\nTesting get all memory types for a specific persona...")
+        try:
+            all_get = {
+                "inputs": {
+                    "function_name": "get_memory",
+                    "function_input_data": {
+                        "memory_type": "all",
+                        "persona_name": personas[0]
+                    }
+                },
+                "deployment": deployment
+            }
+            result = await run(all_get)
+            logger.info(f"Get all memory types for {personas[0]} result: {result}")
+        except Exception as e:
+            logger.error(f"Error in get all memory test: {e}")
 
         logger.info("\nTests completed.")
+    
     asyncio.run(test())

@@ -8,6 +8,7 @@ packages = [
     {include = "napthaville_persona_agent", from="."},
     {include = "napthaville_memory", from="."},
     {include = "napthaville_environment", from="."},
+    {include = "napthaville_chat", from="."},
 ]
 [tool.poetry.dependencies]
 python = ">=3.10,<=3.13"

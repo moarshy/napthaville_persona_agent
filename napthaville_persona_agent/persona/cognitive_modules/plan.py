@@ -24,6 +24,8 @@ from napthaville_persona_agent.persona.prompts.run_gpt_prompt import (
 from napthaville_persona_agent.persona.cognitive_modules.retrieve import new_retrieve
 from napthaville_persona_agent.persona.cognitive_modules.converse import agent_chat_v2
 
+from napthaville_chat.run import run as chat_run
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -203,7 +205,7 @@ def generate_action_arena(act_desp: str, persona, maze, act_world: str, act_sect
     return run_gpt_prompt_action_arena(act_desp, persona, maze, act_world, act_sector)[0]
 
 
-def generate_action_game_object(act_desp: str, act_address: str, persona, maze) -> str:
+def generate_action_game_object(act_desp: str, act_address: str, persona, maze_data) -> str:
     """
     Determines the game object to interact with during an action.
     
@@ -211,7 +213,7 @@ def generate_action_game_object(act_desp: str, act_address: str, persona, maze) 
         act_desp: Description of the action (e.g., "sleeping")
         act_address: Address where the action will take place
         persona: The Persona class instance
-        maze: The current Maze instance
+        maze_data: The maze data
         
     Returns:
         str: Game object identifier (e.g., "bed")
@@ -220,7 +222,7 @@ def generate_action_game_object(act_desp: str, act_address: str, persona, maze) 
     if not persona.s_mem.get_str_accessible_arena_game_objects(act_address):
         return "<random>"
     
-    return run_gpt_prompt_action_game_object(act_desp, persona, maze, act_address)[0]
+    return run_gpt_prompt_action_game_object(act_desp, persona, maze_data, act_address)[0]
 
 
 def generate_action_pronunciatio(act_desp: str, persona) -> str:
@@ -505,7 +507,7 @@ def revise_identity(persona):
         f"{p_name}'s status from {(persona.scratch.curr_time - datetime.timedelta(days=1)).strftime('%A %B %d')}:\n"
         f"{persona.scratch.currently}\n\n"
         f"{p_name}'s thoughts at the end of {(persona.scratch.curr_time - datetime.timedelta(days=1)).strftime('%A %B %d')}:\n"
-        f"{(plan_note + thought_note).replace('\n', '')}\n\n"
+        f"{(plan_note + thought_note).replace(chr(10), '')}\n\n"
         f"It is now {persona.scratch.curr_time.strftime('%A %B %d')}. Given the above, write {p_name}'s status for {persona.scratch.curr_time.strftime('%A %B %d')} "
         f"that reflects {p_name}'s thoughts at the end of {(persona.scratch.curr_time - datetime.timedelta(days=1)).strftime('%A %B %d')}. Write this in third-person talking about {p_name}."
         f"If there is any scheduling information, be as specific as possible (include date, time, and location if stated in the statement).\n\n"
@@ -522,7 +524,7 @@ def revise_identity(persona):
         f"Follow this format (the list should have 4~6 items but no more):\n"
         f"1. wake up and complete the morning routine at <time>, 2. ..."
     )
-    new_daily_req = chat_completion_request(daily_req_prompt).replace('\n', ' ')
+    new_daily_req = chat_completion_request(daily_req_prompt).replace(chr(10), ' ')
     persona.scratch.daily_plan_req = new_daily_req
     logger.info(f"Updated daily plan: {new_daily_req}")
     return persona
@@ -578,7 +580,7 @@ def _long_term_planning(persona, new_day: str):
     )
     return persona
 
-def _determine_action(persona, maze):
+def _determine_action(persona, maze_data):
     """
     Creates the next action sequence for the persona.
     
@@ -586,7 +588,7 @@ def _determine_action(persona, maze):
     
     Args:
         persona: The Persona class instance
-        maze: The current Maze instance
+        maze_data: The current maze data
     """
     def determine_decomp(act_desp: str, act_dura: int) -> bool:
         """
@@ -646,11 +648,11 @@ def _determine_action(persona, maze):
     act_desp, act_dura = persona.scratch.f_daily_schedule[curr_index]
     
     # Generate location and object details
-    act_world = maze.access_tile(persona.scratch.curr_tile)["world"]
-    act_sector = generate_action_sector(act_desp, persona, maze)
-    act_arena = generate_action_arena(act_desp, persona, maze, act_world, act_sector)
+    act_world = maze_data["curr_tile_data"]["world"]
+    act_sector = generate_action_sector(act_desp, persona, maze_data)
+    act_arena = generate_action_arena(act_desp, persona, maze_data, act_world, act_sector)
     act_address = f"{act_world}:{act_sector}:{act_arena}"
-    act_game_object = generate_action_game_object(act_desp, act_address, persona, maze)
+    act_game_object = generate_action_game_object(act_desp, act_address, persona, maze_data)
     new_address = f"{act_world}:{act_sector}:{act_arena}:{act_game_object}"
     
     # Generate action details
@@ -720,12 +722,12 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
     Args:
         persona: The Persona class instance
         retrieved: Dictionary of retrieved context
-        personas: Dictionary of all personas
+        personas: Dictionary of all personas' scratch
         
     Returns:
         Union[str, bool]: Reaction mode or False if no reaction
     """
-    def lets_talk(init_persona, target_persona, retrieved) -> bool:
+    def lets_talk(init_persona, target_persona_name, target_persona, retrieved) -> bool:
         """
         Determines if two personas should engage in conversation.
         
@@ -738,14 +740,14 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             bool: True if personas should talk, False otherwise
         """
         # Check if personas are available for conversation
-        if (not target_persona.scratch.act_address or
-            not target_persona.scratch.act_description or
+        if (not target_persona.act_address or
+            not target_persona.act_description or
             not init_persona.scratch.act_address or
             not init_persona.scratch.act_description):
             return False
         
         # Check if either persona is sleeping
-        if ("sleeping" in target_persona.scratch.act_description or
+        if ("sleeping" in target_persona.act_description or
             "sleeping" in init_persona.scratch.act_description):
             return False
         
@@ -754,23 +756,23 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             return False
         
         # Don't talk to waiting personas
-        if "<waiting>" in target_persona.scratch.act_address:
+        if "<waiting>" in target_persona.act_address:
             return False
         
         # Don't talk if either persona is already in conversation
-        if (target_persona.scratch.chatting_with or
+        if (target_persona.chatting_with or
             init_persona.scratch.chatting_with):
             return False
         
         # Check conversation cooldown period
-        if target_persona.name in init_persona.scratch.chatting_with_buffer:
-            if init_persona.scratch.chatting_with_buffer[target_persona.name] > 0:
+        if target_persona_name in init_persona.scratch.chatting_with_buffer:
+            if init_persona.scratch.chatting_with_buffer[target_persona_name] > 0:
                 return False
         
         # Use LLM to decide whether to talk
         return generate_decide_to_talk(init_persona, target_persona, retrieved)
 
-    def lets_react(init_persona, target_persona, retrieved) -> Union[str, bool]:
+    def lets_react(init_persona, target_persona_name, target_persona, retrieved) -> Union[str, bool]:
         """
         Determines if and how a persona should react to another persona.
         
@@ -783,14 +785,14 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             Union[str, bool]: Reaction mode or False if no reaction
         """
         # Check if personas are available for interaction
-        if (not target_persona.scratch.act_address or
-            not target_persona.scratch.act_description or
+        if (not target_persona.act_address or
+            not target_persona.act_description or
             not init_persona.scratch.act_address or
             not init_persona.scratch.act_description):
             return False
         
         # Check if either persona is sleeping
-        if ("sleeping" in target_persona.scratch.act_description or
+        if ("sleeping" in target_persona.act_description or
             "sleeping" in init_persona.scratch.act_description):
             return False
         
@@ -799,7 +801,7 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             return False
         
         # Don't react to waiting personas
-        if "waiting" in target_persona.scratch.act_description:
+        if "waiting" in target_persona.act_description:
             return False
             
         # Don't react if no planned path
@@ -807,7 +809,7 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             return False
         
         # Only react if in same location
-        if init_persona.scratch.act_address != target_persona.scratch.act_address:
+        if init_persona.scratch.act_address != target_persona.act_address:
             return False
         
         # Get reaction mode from LLM
@@ -816,7 +818,7 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
         if react_mode == "1":
             # Wait until target persona finishes their activity
             wait_until = (
-                (target_persona.scratch.act_start_time + 
+                (target_persona.act_start_time + 
                 datetime.timedelta(minutes=target_persona.scratch.act_duration - 1))
                 .strftime("%B %d, %Y, %H:%M:%S")
             )
@@ -842,18 +844,28 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
     # Handle persona events (events where subject is another persona)
     if ":" not in curr_event.subject:
         # Check if personas should talk
-        if lets_talk(persona, personas[curr_event.subject], retrieved):
+        if lets_talk(
+            persona, 
+            curr_event.subject, 
+            personas[curr_event.subject], 
+            retrieved
+        ):
             return f"chat with {curr_event.subject}"
             
         # Check if persona should otherwise react
-        react_mode = lets_react(persona, personas[curr_event.subject], retrieved)
+        react_mode = lets_react(
+            persona, 
+            curr_event.subject, 
+            personas[curr_event.subject], 
+            retrieved
+        )
         return react_mode
         
     # No reaction for non-persona events
     return False
 
 
-def plan(persona, maze, personas: Dict, new_day: Union[str, bool], retrieved: Dict) -> str:
+async def plan(persona, maze_data, personas: Dict, new_day: Union[str, bool], retrieved: Dict) -> str:
     """
     Main cognitive function for planning persona actions.
     
@@ -862,7 +874,7 @@ def plan(persona, maze, personas: Dict, new_day: Union[str, bool], retrieved: Di
     
     Args:
         persona: The Persona class instance
-        maze: Current Maze instance of the world
+        maze_data: Current Maze instance of the world
         personas: Dictionary of persona names to Persona instances
         new_day: Indicates if this is a new day cycle
             False: Not a new day
@@ -879,7 +891,7 @@ def plan(persona, maze, personas: Dict, new_day: Union[str, bool], retrieved: Di
 
     # PART 2: Create a new action if current one has finished
     if persona.scratch.act_check_finished():
-        _determine_action(persona, maze)
+        _determine_action(persona, maze_data)
 
     # PART 3: Process perceived events that may require response
     focused_event = False
@@ -892,11 +904,18 @@ def plan(persona, maze, personas: Dict, new_day: Union[str, bool], retrieved: Di
         reaction_mode = _should_react(persona, focused_event, personas)
         if reaction_mode:
             # Handle different reaction types
-            if reaction_mode.startswith("chat with"):
-                _chat_react(maze, persona, focused_event, reaction_mode, personas)
-            elif reaction_mode.startswith("wait"):
-                _wait_react(persona, reaction_mode)
-    
+            # if reaction_mode.startswith("chat with"):
+            #     _chat_react(maze_data, persona, focused_event, reaction_mode, personas)
+            # elif reaction_mode.startswith("wait"):
+            #     _wait_react(persona, reaction_mode)
+            chat_input_data = {
+                "init_persona_name": persona.name,
+                "target_persona_name": focused_event["curr_event"].subject,
+                "reaction_mode": reaction_mode,
+                "maze_data": maze_data
+            }
+            await chat_run(chat_input_data)
+
     # Chat-related state cleanup
     if persona.scratch.act_event[1] != "chat with":
         persona.scratch.chatting_with = None
