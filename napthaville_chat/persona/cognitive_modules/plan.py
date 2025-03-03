@@ -3,8 +3,8 @@ import math
 import random
 import logging
 from typing import Dict, List, Tuple, Optional, Union
-from napthaville_persona_agent.persona.prompts.gpt_structure import get_embedding, chat_completion_request
-from napthaville_persona_agent.persona.prompts.run_gpt_prompt import (
+from napthaville_chat.persona.prompts.gpt_structure import get_embedding, chat_completion_request
+from napthaville_chat.persona.prompts.run_gpt_prompt import (
     run_gpt_prompt_wake_up_hour,
     run_gpt_prompt_daily_plan,
     run_gpt_prompt_generate_hourly_schedule,
@@ -21,8 +21,8 @@ from napthaville_persona_agent.persona.prompts.run_gpt_prompt import (
     run_gpt_prompt_decide_to_react,
     run_gpt_prompt_new_decomp_schedule
 )
-from napthaville_persona_agent.persona.cognitive_modules.retrieve import new_retrieve
-from napthaville_persona_agent.persona.cognitive_modules.converse import agent_chat_v2
+from napthaville_chat.persona.cognitive_modules.retrieve import new_retrieve
+from napthaville_chat.persona.cognitive_modules.converse import agent_chat_v2
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -291,12 +291,12 @@ def generate_act_obj_event_triple(act_game_object: str, act_obj_desc: str, perso
 # CHAPTER 3: Conversation Functions
 ##############################################################################
 
-def generate_convo(maze_data, init_persona, target_persona) -> Tuple[List, int]:
+def generate_convo(maze, init_persona, target_persona) -> Tuple[List, int]:
     """
     Generates a conversation between two personas.
     
     Args:
-        maze_data: The current Maze instance
+        maze: The current Maze instance
         init_persona: The persona initiating the conversation
         target_persona: The target persona for the conversation
         
@@ -304,7 +304,7 @@ def generate_convo(maze_data, init_persona, target_persona) -> Tuple[List, int]:
         Tuple[List, int]: Conversation utterances and duration in minutes
     """ 
     # Generate conversation using the most recent version
-    convo = agent_chat_v2(maze_data, init_persona, target_persona)
+    convo = agent_chat_v2(maze, init_persona, target_persona)
     
     # Format conversation for processing
     all_utt = "\n".join(f"{speaker}: {utt}" for speaker, utt in convo)
@@ -863,7 +863,7 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
     return False
 
 
-def plan(persona, maze_data, personas: Dict, new_day: Union[str, bool], retrieved: Dict) -> str:
+async def plan(persona, maze_data, personas: Dict, new_day: Union[str, bool], retrieved: Dict) -> str:
     """
     Main cognitive function for planning persona actions.
     
@@ -902,11 +902,21 @@ def plan(persona, maze_data, personas: Dict, new_day: Union[str, bool], retrieve
         reaction_mode = _should_react(persona, focused_event, personas)
         if reaction_mode:
             # Handle different reaction types
-            if reaction_mode.startswith("chat with"):
-                _chat_react(maze_data, persona, focused_event, reaction_mode, personas)
-            elif reaction_mode.startswith("wait"):
-                _wait_react(persona, reaction_mode)
-    
+            # if reaction_mode.startswith("chat with"):
+            #     _chat_react(maze_data, persona, focused_event, reaction_mode, personas)
+            # elif reaction_mode.startswith("wait"):
+            #     _wait_react(persona, reaction_mode)
+            chat_input_data = {
+                "init_persona_name": persona.name,
+                "target_persona_name": focused_event["curr_event"].subject,
+                "reaction_mode": reaction_mode,
+                "maze_data": maze_data
+            }
+            await chat_run(chat_input_data)
+
+            # Update the persona's memory
+            await persona.load_memory()
+
     # Chat-related state cleanup
     if persona.scratch.act_event[1] != "chat with":
         persona.scratch.chatting_with = None
@@ -922,7 +932,7 @@ def plan(persona, maze_data, personas: Dict, new_day: Union[str, bool], retrieve
     return persona.scratch.act_address
 
 
-def _chat_react(maze, reaction_mode: str, init_persona, target_persona):
+def _chat_react(maze, persona, focused_event: Dict, reaction_mode: str, personas: Dict):
     """
     Creates a conversation reaction between two personas.
     
@@ -937,8 +947,8 @@ def _chat_react(maze, reaction_mode: str, init_persona, target_persona):
         personas: Dictionary of all personas
     """
     # Get the personas involved in conversation
-    init_persona = init_persona
-    target_persona = target_persona
+    init_persona = persona
+    target_persona = personas[reaction_mode[9:].strip()]
     
     # Generate the conversation and its duration
     convo, duration_min = generate_convo(maze, init_persona, target_persona)

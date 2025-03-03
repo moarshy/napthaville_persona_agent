@@ -7,9 +7,9 @@ from typing import List, Dict, Any, Optional, Tuple, Union
 from enum import Enum
 from pydantic import BaseModel
 from pathlib import Path
-from napthaville_persona_agent.persona.prompts.gpt_structure import chat_completion_request
-from napthaville_persona_agent.persona.prompts.print_prompt import PromptLogger
-from napthaville_persona_agent.persona.prompts.prompts import (
+from napthaville_chat.persona.prompts.gpt_structure import chat_completion_request
+from napthaville_chat.persona.prompts.print_prompt import PromptLogger
+from napthaville_chat.persona.prompts.prompts import (
     wake_up_template, daily_planning_template, hourly_schedule_template, task_decomp_template,
     action_sector_template, action_arena_template, action_game_object_template,
     pronunciation_template, event_triple_template, act_obj_desc_template, act_obj_event_triple_template,
@@ -3438,7 +3438,7 @@ def run_gpt_prompt_memo_on_convo(
     return output, [output, prompt, prompt_inputs, fallback]
 
 def run_gpt_generate_iterative_chat_utt(
-    maze: Any,
+    maze_data: Any,
     init_persona: Any,
     target_persona: Any,
     retrieved: Dict[str, List[Any]],
@@ -3451,7 +3451,7 @@ def run_gpt_generate_iterative_chat_utt(
     Generate the next utterance in an iterative conversation between two personas.
     
     Args:
-        maze: The Maze class instance for location information
+        maze_data: The Maze class instance for location information
         init_persona: The initiating Persona instance
         target_persona: The target Persona instance
         retrieved: Dictionary containing relevant memory items
@@ -3466,7 +3466,7 @@ def run_gpt_generate_iterative_chat_utt(
         - List containing [output, prompt, prompt_input, fallback]
     """
     def create_prompt_input(
-        maze: Any,
+        maze_data: Any,
         init_persona: Any,
         target_persona: Any,
         retrieved: Dict[str, List[Any]],
@@ -3500,8 +3500,8 @@ def run_gpt_generate_iterative_chat_utt(
             print(prev_convo_insert)
         
         # Get current location details
-        curr_sector = maze.access_tile(init_persona.scratch.curr_tile)['sector']
-        curr_arena = maze.access_tile(init_persona.scratch.curr_tile)['arena']
+        curr_sector = maze_data['curr_tile_data']['sector']
+        curr_arena = maze_data['curr_tile_data']['arena']
         curr_location = f"{curr_arena} in {curr_sector}"
         
         # Format retrieved memories
@@ -3594,7 +3594,7 @@ def run_gpt_generate_iterative_chat_utt(
     
     # Generate prompt
     prompt_inputs = create_prompt_input(
-        maze, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input
+        maze_data, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input
     )
     prompt = iterative_convo_template.format(**prompt_inputs)
     

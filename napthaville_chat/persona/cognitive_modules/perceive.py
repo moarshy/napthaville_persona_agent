@@ -1,7 +1,7 @@
 import math
 from operator import itemgetter
-from napthaville_persona_agent.persona.prompts.gpt_structure import get_embedding
-from napthaville_persona_agent.persona.prompts.run_gpt_prompt import (
+from napthaville_chat.persona.prompts.gpt_structure import get_embedding
+from napthaville_chat.persona.prompts.run_gpt_prompt import (
     run_gpt_prompt_event_poignancy,
     run_gpt_prompt_chat_poignancy
 )

@@ -1,0 +1,14 @@
+[
+    {
+        "name": "agent_deployment_1",
+        "module": {"name": "napthaville_chat"},
+        "node": {"ip": "localhost"},
+        "config": {
+            "config_name": "agent_config_1",
+            "llm_config": {"config_name": "model_2"}
+        },
+        "memory_deployments": [
+            {"name": "napthaville_momory_deployment_1"}
+        ]
+    }
+]

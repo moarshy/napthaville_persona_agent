@@ -1,6 +1,6 @@
 from napthaville_chat.persona.persona import Persona
 from napthaville_chat.schemas import InputSchema
-from napthaville_chat.cognitive_modules.plan import _chat_react, _wait_react
+from napthaville_chat.persona.cognitive_modules.plan import _chat_react, _wait_react
 
 async def run(module_run):
     input_schema = InputSchema(**module_run["inputs"])

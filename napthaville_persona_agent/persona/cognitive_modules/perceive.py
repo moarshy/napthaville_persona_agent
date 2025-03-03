@@ -72,7 +72,7 @@ def perceive(persona, maze_data):
         if tile_details["events"] and nearby_tiles_arena_path[j] == curr_arena_path:
             # Calculate the distance between the persona's current tile and the target tile
             dist = math.dist(
-                [tile[0], tile[1]],
+                [tile["x"], tile["y"]],
                 [persona.scratch.curr_tile[0], persona.scratch.curr_tile[1]]
             )
             # Add relevant events to our temp set/list with distance info

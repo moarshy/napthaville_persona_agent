@@ -1,15 +1,10 @@
 import datetime
-import sys
-from typing import List, Dict, Tuple, Any, Optional, Set
-
-sys.path.append('../')
-
-from napthaville_persona_agent.persona.prompts.gpt_structure import get_embedding
-from napthaville_persona_agent.persona.memory.spatial import *
-from napthaville_persona_agent.persona.memory.associative_memory import *
-from napthaville_persona_agent.persona.memory.scratch import *
-from napthaville_persona_agent.persona.cognitive_modules.retrieve import new_retrieve
-from napthaville_persona_agent.persona.prompts.run_gpt_prompt import (
+from napthaville_chat.persona.prompts.gpt_structure import get_embedding
+from napthaville_chat.persona.memory.spatial import *
+from napthaville_chat.persona.memory.associative_memory import *
+from napthaville_chat.persona.memory.scratch import *
+from napthaville_chat.persona.cognitive_modules.retrieve import new_retrieve
+from napthaville_chat.persona.prompts.run_gpt_prompt import (
     run_gpt_prompt_agent_chat_summarize_ideas,
     run_gpt_prompt_agent_chat_summarize_relationship,
     run_gpt_prompt_agent_chat,
@@ -210,7 +205,7 @@ def agent_chat_v1(maze, init_persona, target_persona):
     )
 
 
-def generate_one_utterance(maze, speaker_persona, listener_persona, retrieved, curr_chat):
+def generate_one_utterance(maze_data, speaker_persona, listener_persona, retrieved, curr_chat):
     """
     Generate a single utterance in a conversation.
     
@@ -230,7 +225,7 @@ def generate_one_utterance(maze, speaker_persona, listener_persona, retrieved, c
         print("Generating utterance...")
         
     response = run_gpt_generate_iterative_chat_utt(
-        maze, 
+        maze_data, 
         speaker_persona, 
         listener_persona, 
         retrieved, 
@@ -241,12 +236,12 @@ def generate_one_utterance(maze, speaker_persona, listener_persona, retrieved, c
     return response["utterance"], response["end"]
 
 
-def agent_chat_v2(maze, init_persona, target_persona):
+def agent_chat_v2(maze_data, init_persona, target_persona):
     """
     Version 2 of agent chat - generates conversation turn by turn.
     
     Args:
-        maze: The environment maze
+        maze_data: The environment maze data
         init_persona: The persona initiating the conversation
         target_persona: The target persona for the conversation
         
@@ -282,7 +277,7 @@ def agent_chat_v2(maze, init_persona, target_persona):
             ]
             
         retrieved = new_retrieve(init_persona, focal_points, FOCUSED_MEMORY_RETRIEVAL_COUNT)
-        utt, end = generate_one_utterance(maze, init_persona, target_persona, retrieved, curr_chat)
+        utt, end = generate_one_utterance(maze_data, init_persona, target_persona, retrieved, curr_chat)
 
         curr_chat.append([init_persona.scratch.name, utt])
         if end:
@@ -311,7 +306,7 @@ def agent_chat_v2(maze, init_persona, target_persona):
             ]
             
         retrieved = new_retrieve(target_persona, focal_points, FOCUSED_MEMORY_RETRIEVAL_COUNT)
-        utt, end = generate_one_utterance(maze, target_persona, init_persona, retrieved, curr_chat)
+        utt, end = generate_one_utterance(maze_data, target_persona, init_persona, retrieved, curr_chat)
 
         curr_chat.append([target_persona.scratch.name, utt])
         if end:

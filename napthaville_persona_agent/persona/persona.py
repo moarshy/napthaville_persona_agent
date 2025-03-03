@@ -4,7 +4,7 @@ import datetime
 import random
 import json
 import logging
-
+from typing import List
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
@@ -15,8 +15,8 @@ from napthaville_persona_agent.persona.memory.scratch import Scratch
 from napthaville_persona_agent.persona.cognitive_modules.perceive import perceive
 from napthaville_persona_agent.persona.cognitive_modules.retrieve import retrieve
 from napthaville_persona_agent.persona.cognitive_modules.plan import plan
-# from napthaville_persona_agent.persona.cognitive_modules.reflect import reflect
-# from napthaville_persona_agent.persona.cognitive_modules.execute import execute
+from napthaville_persona_agent.persona.cognitive_modules.reflect import reflect
+from napthaville_persona_agent.persona.cognitive_modules.execute import execute
 # from napthaville_persona_agent.persona.cognitive_modules.converse import open_convo_session
 
 from napthaville_memory.run import run as memory_run
@@ -165,112 +165,58 @@ class Persona:
     def retrieve(self, perceived):
         return retrieve(self, perceived)
 
-    def plan(self, personas, new_day, retrieved):
-        return plan(self, self.perceive_maze_data, personas, new_day, retrieved)
+    async def plan(self, personas, new_day, retrieved):
+        return await plan(self, self.perceive_maze_data, personas, new_day, retrieved)
 
-    # def execute(self, maze, personas, plan):
-    #     """
-    #     Execute a plan by determining concrete actions.
-        
-    #     This function takes the agent's current plan and outputs a concrete 
-    #     execution (what object to use, and what tile to travel to).
+    async def execute(self, persona_names: List[str], plan: str):
+        # get maze data for execute
+        execute_maze = {
+            "inputs": {
+                "function_name": "execute",
+                "function_input_data": {}
+            },
+            "deployment": self.maze_deployment
+        }
+        execute_maze_data = await maze_run(execute_maze)
 
-    #     Args:
-    #         maze: Current <Maze> instance of the world
-    #         personas: A dictionary that contains all persona names as keys and
-    #                  Persona instances as values
-    #         plan: The target action address of the persona
-            
-    #     Returns:
-    #         A triple containing:
-    #         - next_tile: An (x,y) coordinate, e.g., (58, 9)
-    #         - pronunciation: An emoji representation of the action
-    #         - description: A string description of the action
-    #     """
-    #     return execute(self, maze, personas, plan)
+        # get personas details for execute curr_tile
+        personas = {}
+        for persona_name in persona_names:
+            get_scratch = {
+                "inputs": {
+                    "function_name": "get_memory",
+                    "function_input_data": {
+                        "memory_type": "scratch",
+                        "persona_name": persona_name
+                    }
+                },
+                "deployment": self.memory_deployment
+            }
+            scratch_memory = await memory_run(get_scratch)
+            scratch_memory = json.loads(json.loads(scratch_memory['data'][0]['memory_data'])[0]['data'])
+            personas[persona_name] = scratch_memory
+        return execute(self, execute_maze_data, personas, plan)
 
-    # def reflect(self):
-    #     """
-    #     Review the persona's memory and create new thoughts based on it.
-    #     """
-    #     reflect(self)
+    def reflect(self):
+        """
+        Review the persona's memory and create new thoughts based on it.
+        """
+        reflect(self)
 
-    # def move(self, maze, personas, curr_tile, curr_time):
-    #     """
-    #     Main cognitive function where the perception-reasoning-action sequence is called.
-        
-    #     This method coordinates the full cognitive cycle of perceive -> retrieve
-    #     -> plan -> reflect -> execute.
+    async def move(self, persona_names, curr_tile, curr_time):
+        self.scratch.curr_tile = curr_tile
 
-    #     Args:
-    #         maze: The Maze class of the current world
-    #         personas: A dictionary that contains all persona names as keys and
-    #                  Persona instances as values
-    #         curr_tile: A tuple that designates the persona's current tile location
-    #                   in (row, col) form, e.g., (58, 39)
-    #         curr_time: datetime instance that indicates the game's current time
-            
-    #     Returns:
-    #         A triple containing:
-    #         - next_tile: An (x,y) coordinate, e.g., (58, 9)
-    #         - pronunciation: An emoji representation of the action
-    #         - description: A string description of the action
-    #     """
-    #     # Updating persona's scratch memory with <curr_tile>
-    #     self.scratch.curr_tile = curr_tile
+        new_day = False
+        if not self.scratch.curr_time:
+            new_day = "First day"
+        elif (self.scratch.curr_time.strftime('%A %B %d') != 
+              curr_time.strftime('%A %B %d')):
+            new_day = "New day"
+        self.scratch.curr_time = curr_time
 
-    #     # We figure out whether the persona started a new day, and if it is a new
-    #     # day, whether it is the very first day of the simulation. This is 
-    #     # important because we set up the persona's long term plan at the start of
-    #     # a new day.
-    #     new_day = False
-    #     if not self.scratch.curr_time:
-    #         new_day = "First day"
-    #     elif (self.scratch.curr_time.strftime('%A %B %d') != 
-    #           curr_time.strftime('%A %B %d')):
-    #         new_day = "New day"
-    #     self.scratch.curr_time = curr_time
-
-    #     # Main cognitive sequence begins here
-    #     perceived = self.perceive(maze)
-    #     retrieved = self.retrieve(perceived)
-    #     plan = self.plan(maze, personas, new_day, retrieved)
-    #     self.reflect()
-
-    #     # Return the execution result, which contains:
-    #     # - next_tile: An (x,y) coordinate
-    #     # - pronunciation: An emoji
-    #     # - description: A string description of the action
-    #     return self.execute(maze, personas, plan)
-
-    # def open_convo_session(self, convo_mode):
-    #     """
-    #     Open a conversation session for the persona.
-        
-    #     Args:
-    #         convo_mode: The mode of conversation to open
-    #     """
-    #     open_convo_session(self, convo_mode)
-
-
-if __name__ == "__main__":
-    from dotenv import load_dotenv
-    from pathlib import Path
-    from napthaville_persona_agent.maze.maze import Maze
-    load_dotenv()
-
-    memory_folder = Path(__file__).parent.parent.parent / "test_data/July1_the_ville_isabella_maria_klaus-step-3-19/personas/Isabella Rodriguez"
-    print(memory_folder)
-    persona = Persona("Isabella Rodriguez", memory_folder)
-    print(f"Persona name: {persona.name}")
-    print(f"Current time: {persona.scratch.curr_time}")
-    print(f"Current tile: {persona.scratch.curr_tile}")
-
-    # test perceive
-    maze = Maze("maze_1")
-    perceived = persona.perceive(maze)
-    print(f"Perceived: {perceived}")
-
-    # test retrieve
-    retrieved = persona.retrieve(perceived)
-    print(f"Retrieved: {retrieved}")
+        perceived = await self.perceive()
+        retrieved = self.retrieve(perceived)
+        plan = await self.plan(persona_names, new_day, retrieved)
+        print(f"Plan: {plan}")
+        self.reflect()
+        return await self.execute(persona_names, plan)

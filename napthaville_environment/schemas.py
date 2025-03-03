@@ -79,6 +79,7 @@ class AvailableFunctions(str, Enum):
     """Enum for available functions"""
     INIT = "init"
     PERCEIVE = "perceive"
+    EXECUTE = "execute"
     TURN_COORDINATE_TO_TILE = "turn_coordinate_to_tile"
     ACCESS_TILE = "access_tile"
     GET_TILE_PATH = "get_tile_path"

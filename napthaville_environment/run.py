@@ -88,7 +88,6 @@ class NapthavilleEnvironment:
             
             await self.maze.add_event_from_tile(event_tuple, tile)
             tile_after = await self.maze.access_tile(tile)
-            
             return {
                 "success": True,
                 "events": [list(e) for e in tile_after.events]
@@ -104,8 +103,7 @@ class NapthavilleEnvironment:
             event = tuple(inputs["curr_event"])
             
             await self.maze.remove_event_from_tile(event, tile)
-            result = await self.maze.access_tile(tile)
-            
+            result = await self.maze.access_tile(tile)            
             return {
                 "success": True,
                 "events": [list(e) for e in result.events]
@@ -138,7 +136,6 @@ class NapthavilleEnvironment:
             
             await self.maze.remove_subject_events_from_tile(subject, tile)
             result = await self.maze.access_tile(tile)
-            
             return {
                 "success": True,
                 "events": [list(e) for e in result.events]
@@ -174,6 +171,18 @@ class NapthavilleEnvironment:
             "nearby_tiles_data": nearby_tiles_data,
             "nearby_tiles_arena_path": nearby_tiles_arena_path,
             "curr_tile_data": curr_tile_data.model_dump()
+        }
+    
+    async def execute(self, inputs: Dict) -> Dict:
+        """Execute a plan"""
+        # get address tiles
+        address_tiles = self.maze.address_tiles
+        # get collision maze
+        collision_maze = self.maze.collision_maze
+        return {
+            "success": True,
+            "address_tiles": address_tiles,
+            "collision_maze": collision_maze,
         }
 
 async def run(module_run: Dict, *args, **kwargs) -> Dict:

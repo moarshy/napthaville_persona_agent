@@ -1,8 +1,16 @@
 import random
+import json
 from napthaville_persona_agent.persona.prompts.gpt_structure import *
+from napthaville_persona_agent.persona.path_finder import path_finder
+from napthaville_environment.run import run as maze_run
 
+with open("/Users/arshath/play/napthaville_persona_agent/napthaville_environment/configs/deployment.json", "r") as f:
+    maze_deployment = json.load(f)
+    maze_deployment = maze_deployment[0]
 
-def execute(persona, maze, personas, plan):
+collision_block_id = "32125"
+
+def execute(persona, maze_data, personas, plan):
     """
     Given a plan (action's string address), we execute the plan (actually
     outputs the tile coordinate path and the next coordinate for the
@@ -29,10 +37,10 @@ def execute(persona, maze, personas, plan):
     # If path is not set for the current action, we need to construct a new path
     if not persona.scratch.act_path_set:
         # Get target tiles based on the plan type
-        target_tiles = get_target_tiles(plan, persona, maze, personas)
+        target_tiles = get_target_tiles(plan, persona, maze_data, personas)
         
         # Find the optimal path to one of the target tiles
-        path = find_optimal_path(target_tiles, persona.scratch.curr_tile, maze)
+        path = find_optimal_path(target_tiles, persona.scratch.curr_tile, maze_data)
         
         # Set the planned path (excluding current tile)
         persona.scratch.planned_path = path[1:]
@@ -51,7 +59,7 @@ def execute(persona, maze, personas, plan):
     return next_tile, persona.scratch.act_pronunciatio, description
 
 
-def get_target_tiles(plan, persona, maze, personas):
+def get_target_tiles(plan, persona, maze_data, personas):
     """
     Determine target tiles based on the plan type.
     
@@ -65,7 +73,7 @@ def get_target_tiles(plan, persona, maze, personas):
         List of target tile coordinates
     """
     if "<persona>" in plan:
-        return get_persona_interaction_tiles(plan, persona, maze, personas)
+        return get_persona_interaction_tiles(plan, persona, maze_data, personas)
     elif "<waiting>" in plan:
         # Executing interaction where the persona waits
         x = int(plan.split()[1])
@@ -74,18 +82,18 @@ def get_target_tiles(plan, persona, maze, personas):
     elif "<random>" in plan:
         # Executing a random location action
         plan_base = ":".join(plan.split(":")[:-1])
-        tiles = maze.address_tiles[plan_base]
+        tiles = maze_data["address_tiles"][plan_base]
         return random.sample(list(tiles), 1)
     else:
         # Default execution - go to the location of the action
-        if plan not in maze.address_tiles:
+        if plan not in maze_data["address_tiles"]:
             # Handle missing address by returning a fallback location
             # This replaces the error-causing line in the original code
-            return list(maze.address_tiles.get("Johnson Park:park:park garden", []))
-        return maze.address_tiles[plan]
+            return list(maze_data["address_tiles"].get("Johnson Park:park:park garden", []))
+        return maze_data["address_tiles"][plan]
 
 
-def get_persona_interaction_tiles(plan, persona, maze, personas):
+def get_persona_interaction_tiles(plan, persona, maze_data, personas):
     """
     Get tiles for persona-to-persona interactions.
     
@@ -102,7 +110,7 @@ def get_persona_interaction_tiles(plan, persona, maze, personas):
     target_p_tile = personas[target_persona_name].scratch.curr_tile
     
     potential_path = path_finder(
-        maze.collision_maze,
+        maze_data["collision_maze"],
         persona.scratch.curr_tile,
         target_p_tile,
         collision_block_id
@@ -114,14 +122,14 @@ def get_persona_interaction_tiles(plan, persona, maze, personas):
     # Find midpoint to approach target persona
     mid_index = int(len(potential_path) / 2)
     potential_1 = path_finder(
-        maze.collision_maze,
+        maze_data["collision_maze"],
         persona.scratch.curr_tile,
         potential_path[mid_index],
         collision_block_id
     )
     
     potential_2 = path_finder(
-        maze.collision_maze,
+        maze_data["collision_maze"],
         persona.scratch.curr_tile,
         potential_path[mid_index + 1],
         collision_block_id
@@ -133,13 +141,12 @@ def get_persona_interaction_tiles(plan, persona, maze, personas):
         return [potential_path[mid_index + 1]]
 
 
-def filter_target_tiles(target_tiles, maze, personas):
+def filter_target_tiles(target_tiles, personas):
     """
     Filter target tiles to avoid occupied tiles when possible.
     
     Args:
         target_tiles: List of potential target tiles
-        maze: Current maze instance
         personas: Dictionary of all personas
         
     Returns:
@@ -156,7 +163,18 @@ def filter_target_tiles(target_tiles, maze, personas):
     unoccupied_tiles = []
     
     for tile in sampled_tiles:
-        curr_events = maze.access_tile(tile)["events"]
+        access_tile_data = {
+            "inputs": {
+                "function_name": "access_tile",
+                "function_input_data": {
+                    "tile": tile
+                }
+            },
+            "deployment": maze_deployment
+        }
+        tile_data = maze_run(access_tile_data)
+        print(f"tile_data: {tile_data}")
+        curr_events = tile_data["curr_tile_data"]["events"]
         tile_occupied = any(event[0] in persona_name_set for event in curr_events)
         
         if not tile_occupied:
@@ -166,27 +184,27 @@ def filter_target_tiles(target_tiles, maze, personas):
     return unoccupied_tiles if unoccupied_tiles else sampled_tiles
 
 
-def find_optimal_path(target_tiles, curr_tile, maze):
+def find_optimal_path(target_tiles, curr_tile, maze_data):
     """
     Find the shortest path to one of the target tiles.
     
     Args:
         target_tiles: List of potential target tiles
         curr_tile: Current tile of the persona
-        maze: Current maze instance
+        maze_data: Current maze data
         
     Returns:
         Shortest path to a target tile
     """
     # Filter target tiles to prefer unoccupied ones
-    filtered_tiles = filter_target_tiles(target_tiles, maze, {})
+    filtered_tiles = filter_target_tiles(target_tiles, {})
     
     closest_target_tile = None
     shortest_path = None
     
     for tile in filtered_tiles:
         curr_path = path_finder(
-            maze.collision_maze,
+            maze_data["collision_maze"],
             curr_tile,
             tile,
             collision_block_id

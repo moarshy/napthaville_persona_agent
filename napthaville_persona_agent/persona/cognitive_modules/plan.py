@@ -916,6 +916,9 @@ async def plan(persona, maze_data, personas: Dict, new_day: Union[str, bool], re
             }
             await chat_run(chat_input_data)
 
+            # Update the persona's memory
+            await persona.load_memory()
+
     # Chat-related state cleanup
     if persona.scratch.act_event[1] != "chat with":
         persona.scratch.chatting_with = None

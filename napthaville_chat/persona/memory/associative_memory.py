@@ -1,6 +1,6 @@
-import json
+
 import datetime
-from napthaville_persona_agent.persona.prompts.gpt_structure import get_embedding
+from napthaville_chat.persona.prompts.gpt_structure import get_embedding
 
 
 class ConceptNode:

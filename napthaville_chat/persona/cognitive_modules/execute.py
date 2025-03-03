@@ -1,6 +1,8 @@
 import random
-from napthaville_persona_agent.persona.prompts.gpt_structure import *
+from napthaville_chat.persona.prompts.gpt_structure import *
+from napthaville_chat.persona.path_finder import path_finder
 
+collision_block_id = "32125"
 
 def execute(persona, maze, personas, plan):
     """
