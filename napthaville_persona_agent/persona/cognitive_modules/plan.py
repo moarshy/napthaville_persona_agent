@@ -740,14 +740,14 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             bool: True if personas should talk, False otherwise
         """
         # Check if personas are available for conversation
-        if (not target_persona.act_address or
-            not target_persona.act_description or
+        if (not target_persona["act_address"] or
+            not target_persona["act_description"] or
             not init_persona.scratch.act_address or
             not init_persona.scratch.act_description):
             return False
         
         # Check if either persona is sleeping
-        if ("sleeping" in target_persona.act_description or
+        if ("sleeping" in target_persona["act_description"] or
             "sleeping" in init_persona.scratch.act_description):
             return False
         
@@ -756,11 +756,11 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             return False
         
         # Don't talk to waiting personas
-        if "<waiting>" in target_persona.act_address:
+        if "<waiting>" in target_persona["act_address"]:
             return False
         
         # Don't talk if either persona is already in conversation
-        if (target_persona.chatting_with or
+        if (target_persona["chatting_with"] or
             init_persona.scratch.chatting_with):
             return False
         
@@ -785,14 +785,14 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             Union[str, bool]: Reaction mode or False if no reaction
         """
         # Check if personas are available for interaction
-        if (not target_persona.act_address or
-            not target_persona.act_description or
+        if (not target_persona["act_address"] or
+            not target_persona["act_description"] or
             not init_persona.scratch.act_address or
             not init_persona.scratch.act_description):
             return False
         
         # Check if either persona is sleeping
-        if ("sleeping" in target_persona.act_description or
+        if ("sleeping" in target_persona["act_description"] or
             "sleeping" in init_persona.scratch.act_description):
             return False
         
@@ -801,7 +801,7 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             return False
         
         # Don't react to waiting personas
-        if "waiting" in target_persona.act_description:
+        if "waiting" in target_persona["act_description"]:
             return False
             
         # Don't react if no planned path
@@ -809,7 +809,7 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
             return False
         
         # Only react if in same location
-        if init_persona.scratch.act_address != target_persona.act_address:
+        if init_persona.scratch.act_address != target_persona["act_address"]:
             return False
         
         # Get reaction mode from LLM
@@ -818,8 +818,8 @@ def _should_react(persona, retrieved: Dict, personas: Dict) -> Union[str, bool]:
         if react_mode == "1":
             # Wait until target persona finishes their activity
             wait_until = (
-                (target_persona.act_start_time + 
-                datetime.timedelta(minutes=target_persona.scratch.act_duration - 1))
+                (target_persona["act_start_time"] + 
+                datetime.timedelta(minutes=target_persona["scratch"]["act_duration"] - 1))
                 .strftime("%B %d, %Y, %H:%M:%S")
             )
             return f"wait: {wait_until}"

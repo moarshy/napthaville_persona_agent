@@ -179,10 +179,12 @@ class NapthavilleEnvironment:
         address_tiles = self.maze.address_tiles
         # get collision maze
         collision_maze = self.maze.collision_maze
+        
         return {
             "success": True,
             "address_tiles": address_tiles,
             "collision_maze": collision_maze,
+
         }
 
 async def run(module_run: Dict, *args, **kwargs) -> Dict:

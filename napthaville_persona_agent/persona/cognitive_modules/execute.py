@@ -7,10 +7,15 @@ from napthaville_environment.run import run as maze_run
 with open("/Users/arshath/play/napthaville_persona_agent/napthaville_environment/configs/deployment.json", "r") as f:
     maze_deployment = json.load(f)
     maze_deployment = maze_deployment[0]
+    maze_deployment["node"] = {
+        "ip": "localhost",
+        "user_communication_port": 7001,
+        "user_communication_protocol": "http"
+    }
 
 collision_block_id = "32125"
 
-def execute(persona, maze_data, personas, plan):
+async def execute(persona, maze_data, personas, plan):
     """
     Given a plan (action's string address), we execute the plan (actually
     outputs the tile coordinate path and the next coordinate for the
@@ -40,7 +45,8 @@ def execute(persona, maze_data, personas, plan):
         target_tiles = get_target_tiles(plan, persona, maze_data, personas)
         
         # Find the optimal path to one of the target tiles
-        path = find_optimal_path(target_tiles, persona.scratch.curr_tile, maze_data)
+        # Corrected: Use await since find_optimal_path is async
+        path = await find_optimal_path(target_tiles, persona.scratch.curr_tile, maze_data, personas)
         
         # Set the planned path (excluding current tile)
         persona.scratch.planned_path = path[1:]
@@ -88,9 +94,8 @@ def get_target_tiles(plan, persona, maze_data, personas):
         # Default execution - go to the location of the action
         if plan not in maze_data["address_tiles"]:
             # Handle missing address by returning a fallback location
-            # This replaces the error-causing line in the original code
             return list(maze_data["address_tiles"].get("Johnson Park:park:park garden", []))
-        return maze_data["address_tiles"][plan]
+        return list(maze_data["address_tiles"][plan])  # Convert to list to ensure it's a list
 
 
 def get_persona_interaction_tiles(plan, persona, maze_data, personas):
@@ -141,7 +146,7 @@ def get_persona_interaction_tiles(plan, persona, maze_data, personas):
         return [potential_path[mid_index + 1]]
 
 
-def filter_target_tiles(target_tiles, personas):
+async def filter_target_tiles(target_tiles, personas):
     """
     Filter target tiles to avoid occupied tiles when possible.
     
@@ -152,11 +157,14 @@ def filter_target_tiles(target_tiles, personas):
     Returns:
         Filtered list of target tiles
     """
+    # Ensure target_tiles is a list before processing
+    target_tiles_list = list(target_tiles)
+    
     # Sample a subset of target tiles if there are many
-    if len(target_tiles) < 4:
-        sampled_tiles = random.sample(list(target_tiles), len(target_tiles))
+    if len(target_tiles_list) < 4:
+        sampled_tiles = random.sample(target_tiles_list, len(target_tiles_list))
     else:
-        sampled_tiles = random.sample(list(target_tiles), 4)
+        sampled_tiles = random.sample(target_tiles_list, 4)
     
     # Try to find unoccupied tiles
     persona_name_set = set(personas.keys())
@@ -167,14 +175,16 @@ def filter_target_tiles(target_tiles, personas):
             "inputs": {
                 "function_name": "access_tile",
                 "function_input_data": {
-                    "tile": tile
+                    "tile": {
+                        "x": tile[0],
+                        "y": tile[1]
+                    }
                 }
             },
             "deployment": maze_deployment
         }
-        tile_data = maze_run(access_tile_data)
-        print(f"tile_data: {tile_data}")
-        curr_events = tile_data["curr_tile_data"]["events"]
+        tile_data = await maze_run(access_tile_data)
+        curr_events = tile_data["events"]
         tile_occupied = any(event[0] in persona_name_set for event in curr_events)
         
         if not tile_occupied:
@@ -184,7 +194,7 @@ def filter_target_tiles(target_tiles, personas):
     return unoccupied_tiles if unoccupied_tiles else sampled_tiles
 
 
-def find_optimal_path(target_tiles, curr_tile, maze_data):
+async def find_optimal_path(target_tiles, curr_tile, maze_data, personas):
     """
     Find the shortest path to one of the target tiles.
     
@@ -192,12 +202,13 @@ def find_optimal_path(target_tiles, curr_tile, maze_data):
         target_tiles: List of potential target tiles
         curr_tile: Current tile of the persona
         maze_data: Current maze data
+        personas: Dictionary of all personas
         
     Returns:
         Shortest path to a target tile
     """
     # Filter target tiles to prefer unoccupied ones
-    filtered_tiles = filter_target_tiles(target_tiles, {})
+    filtered_tiles = await filter_target_tiles(target_tiles, personas)
     
     closest_target_tile = None
     shortest_path = None
@@ -213,5 +224,9 @@ def find_optimal_path(target_tiles, curr_tile, maze_data):
         if not shortest_path or len(curr_path) < len(shortest_path):
             closest_target_tile = tile
             shortest_path = curr_path
+    
+    # Ensure we return a valid path even if none was found
+    if not shortest_path:
+        return [curr_tile]  # Return current position if no path found
     
     return shortest_path

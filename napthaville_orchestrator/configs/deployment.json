@@ -1,0 +1,21 @@
+[
+    {
+        "name": "napthaville_orchestrator_1",
+        "module": {"name": "napthaville_orchestrator"},
+        "node": {"ip": "localhost"},
+        "config": {
+            "config_name": "napthaville_orchestrator_config",
+            "world_name": "Napthaville",
+            "storage_config": {
+                "storage_type": "db",
+                "path": "napthaville_simulation",
+                "storage_schema": {
+                    "napthaville_simulation": {
+                        "type": {"type": "text", "primary_key": true},
+                        "data": {"type": "jsonb"}
+                    }
+                }
+            }
+        }
+    }
+]

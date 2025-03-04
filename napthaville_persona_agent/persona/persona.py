@@ -139,6 +139,25 @@ class Persona:
         except Exception as e:
             logger.error(f"Error saving associative memory: {e}")
             raise e
+        
+    async def init_simulation(self, tile):
+        """
+        Initialize the simulation.
+        """
+        env_init = {
+            "inputs": {
+                "function_name": "add_event_from_tile",
+                "function_input_data": {
+                    "tile": {
+                        "x": tile[0],
+                        "y": tile[1]
+                    },
+                    "curr_event": self.scratch.get_curr_event_and_desc()
+                }
+            },
+            "deployment": self.maze_deployment
+        }
+        await maze_run(env_init)
 
     async def perceive_maze(self):
         """
@@ -165,8 +184,30 @@ class Persona:
     def retrieve(self, perceived):
         return retrieve(self, perceived)
 
-    async def plan(self, personas, new_day, retrieved):
-        return await plan(self, self.perceive_maze_data, personas, new_day, retrieved)
+    async def plan(self, persona_names, new_day, retrieved):
+        personas = {}
+        for persona_name in persona_names:
+            get_scratch = {
+                "inputs": {
+                    "function_name": "get_memory",
+                    "function_input_data": {
+                        "memory_type": "scratch",
+                        "persona_name": persona_name
+                    },
+                },
+                "deployment": self.memory_deployment
+            }
+            scratch_memory = await memory_run(get_scratch)
+            scratch_memory = json.loads(json.loads(scratch_memory['data'][0]['memory_data'])[0]['data'])
+            personas[persona_name] = scratch_memory
+
+        return await plan(
+            persona=self,
+            maze_data=self.perceive_maze_data,
+            personas=personas,
+            new_day=new_day,
+            retrieved=retrieved
+        )
 
     async def execute(self, persona_names: List[str], plan: str):
         # get maze data for execute
@@ -178,6 +219,13 @@ class Persona:
             "deployment": self.maze_deployment
         }
         execute_maze_data = await maze_run(execute_maze)
+        execute_maze_data["curr_tile"] = self.perceive_maze_data["curr_tile"]
+        execute_maze_data["vision_r"] = self.perceive_maze_data["vision_r"]
+        execute_maze_data["nearby_tiles"] = self.perceive_maze_data["nearby_tiles"]
+        execute_maze_data["curr_arena_path"] = self.perceive_maze_data["curr_arena_path"]
+        execute_maze_data["nearby_tiles_data"] = self.perceive_maze_data["nearby_tiles_data"]
+        execute_maze_data["nearby_tiles_arena_path"] = self.perceive_maze_data["nearby_tiles_arena_path"]
+        execute_maze_data["curr_tile_data"] = self.perceive_maze_data["curr_tile_data"]
 
         # get personas details for execute curr_tile
         personas = {}
@@ -195,7 +243,7 @@ class Persona:
             scratch_memory = await memory_run(get_scratch)
             scratch_memory = json.loads(json.loads(scratch_memory['data'][0]['memory_data'])[0]['data'])
             personas[persona_name] = scratch_memory
-        return execute(self, execute_maze_data, personas, plan)
+        return await execute(self, execute_maze_data, personas, plan)
 
     def reflect(self):
         """
@@ -204,6 +252,7 @@ class Persona:
         reflect(self)
 
     async def move(self, persona_names, curr_tile, curr_time):
+        await self.load_memory()
         self.scratch.curr_tile = curr_tile
 
         new_day = False
@@ -217,6 +266,7 @@ class Persona:
         perceived = await self.perceive()
         retrieved = self.retrieve(perceived)
         plan = await self.plan(persona_names, new_day, retrieved)
-        print(f"Plan: {plan}")
         self.reflect()
-        return await self.execute(persona_names, plan)
+        execute_result = await self.execute(persona_names, plan)        
+        await self.save_memory()
+        return execute_result
