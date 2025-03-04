@@ -80,22 +80,9 @@ def generate_first_daily_plan(persona, wake_up_hour: int) -> List[str]:
 
 def generate_hourly_schedule(persona, wake_up_hour: int) -> List[List[Union[str, int]]]:
     """
-    Creates an hourly schedule based on the daily plan.
-    
-    Args:
-        persona: The Persona class instance
-        wake_up_hour: Hour the persona wakes up (0-23)
-        
-    Returns:
-        List[List[Union[str, int]]]: List of activities and their duration in minutes
-    
-    Example:
-        [['sleeping', 360], ['waking up and starting morning routine', 60], 
-         ['eating breakfast', 60], ...]
+    Creates an hourly schedule list based on the persona's daily plan.
+    Each element is [activity, duration_in_minutes].
     """
-    if DEBUG:
-        logger.debug("FUNCTION: <generate_hourly_schedule>")
-
     hour_str = [
         "00:00 AM", "01:00 AM", "02:00 AM", "03:00 AM", "04:00 AM", 
         "05:00 AM", "06:00 AM", "07:00 AM", "08:00 AM", "09:00 AM", 
@@ -103,51 +90,45 @@ def generate_hourly_schedule(persona, wake_up_hour: int) -> List[List[Union[str,
         "03:00 PM", "04:00 PM", "05:00 PM", "06:00 PM", "07:00 PM",
         "08:00 PM", "09:00 PM", "10:00 PM", "11:00 PM"
     ]
-    
-    # Generate a diverse hourly schedule by repeating the process
-    # until we have at least 5 different activities
+
     n_m1_activity = []
     diversity_repeat_count = 3
-    
-    for _ in range(diversity_repeat_count): 
-        n_m1_activity_set = set(n_m1_activity)
-        if len(n_m1_activity_set) >= 5:
+
+    for _ in range(diversity_repeat_count):
+        if len(set(n_m1_activity)) >= 5:
             break
-            
+
         n_m1_activity = []
         remaining_wake_up_hour = wake_up_hour
-        
-        for count, curr_hour_str in enumerate(hour_str):
+
+        for curr_hour_str in hour_str:
             if remaining_wake_up_hour > 0:
                 n_m1_activity.append("sleeping")
                 remaining_wake_up_hour -= 1
             else:
-                activity = run_gpt_prompt_generate_hourly_schedule(
-                    persona, curr_hour_str, n_m1_activity, hour_str)[0]
+                activity, _ = run_gpt_prompt_generate_hourly_schedule(
+                    persona, curr_hour_str, n_m1_activity, hour_str
+                )
                 n_m1_activity.append(activity)
-  
-    # Step 1: Compress hourly schedule by combining consecutive identical activities
-    _n_m1_hourly_compressed = []
-    prev = None 
-    prev_count = 0
-    
-    for activity in n_m1_activity:
-        if activity != prev:
+
+    # Compress consecutive identical activities and convert hours to minutes
+    compressed = []
+    prev = None
+    count = 0
+
+    for act in n_m1_activity:
+        if act != prev:
             if prev is not None:
-                _n_m1_hourly_compressed.append([prev, prev_count])
-            prev = activity
-            prev_count = 1
+                compressed.append([prev, count * 60])
+            prev = act
+            count = 1
         else:
-            prev_count += 1
-    
-    # Add the last activity
+            count += 1
+
     if prev is not None:
-        _n_m1_hourly_compressed.append([prev, prev_count])
+        compressed.append([prev, count * 60])
 
-    # Step 2: Convert from hours to minutes
-    n_m1_hourly_compressed = [[task, duration * 60] for task, duration in _n_m1_hourly_compressed]
-
-    return n_m1_hourly_compressed
+    return compressed
 
 
 def generate_task_decomp(persona, task: str, duration: int) -> List[List[Union[str, int]]]:
@@ -547,6 +528,7 @@ def _long_term_planning(persona, new_day: str):
     """
     # Generate wake up hour
     wake_up_hour = generate_wake_up_hour(persona)
+    print(f"Wake up hour: {wake_up_hour}")
     
     # Create daily plan based on day type
     if new_day == "First day":

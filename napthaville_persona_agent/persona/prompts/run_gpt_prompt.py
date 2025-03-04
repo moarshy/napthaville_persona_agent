@@ -156,20 +156,7 @@ def run_gpt_prompt_generate_hourly_schedule(
 ) -> Tuple[str, List[Any]]:
     """
     Generate an hourly schedule for a persona.
-    
-    Args:
-        persona: The Persona class instance
-        curr_hour_str: Current hour string
-        p_f_ds_hourly_org: Previous hourly schedule
-        hour_str: List of hour strings
-        intermission2: Optional additional intermission text
-        test_input: Optional test inputs for debugging
-        verbose: Whether to print debug information
-    
-    Returns:
-        Tuple containing:
-        - Generated activity string
-        - List containing [output, prompt, params, prompt_input, fallback]
+    Returns a tuple of (activity, details list).
     """
     def create_prompt_input(
         persona,
@@ -179,103 +166,72 @@ def run_gpt_prompt_generate_hourly_schedule(
         intermission2=None,
         test_input=None
     ) -> Dict[str, str]:
-        """Create the formatted input for the prompt template."""
         if test_input:
             return test_input
 
-        # Create schedule format
+        # Build schedule format: one line per hour
         schedule_format = "\n".join(
             f"[{persona.scratch.get_str_curr_date_str()} -- {hour}] Activity: [Fill in]"
             for hour in hour_str
         )
 
-        # Create intermission string
         intermission_str = (
-            f"Here the originally intended hourly breakdown of "
-            f"{persona.scratch.get_str_firstname()}'s schedule today: " +
+            f"Originally intended hourly breakdown for {persona.scratch.get_str_firstname()} today: " +
             ", ".join(f"{i+1}) {act}" for i, act in enumerate(persona.scratch.daily_req))
         )
 
-        # Create prior schedule if it exists
         prior_schedule = ""
         if p_f_ds_hourly_org:
-            prior_schedule = "\n" + "\n".join(
-                f"[(ID:{get_random_alphanumeric()}) "
-                f"{persona.scratch.get_str_curr_date_str()} -- "
-                f"{hour_str[i]}] Activity: {persona.scratch.get_str_firstname()} "
-                f"is {activity}"
+            prior_schedule = "\n".join(
+                f"[(ID:{get_random_alphanumeric()}) {persona.scratch.get_str_curr_date_str()} -- {hour_str[i]}] Activity: {persona.scratch.get_str_firstname()} is {activity}"
                 for i, activity in enumerate(p_f_ds_hourly_org)
-            )
+            ) + "\n"
 
-        # Create prompt ending
         prompt_ending = (
-            f"[(ID:{get_random_alphanumeric()}) "
-            f"{persona.scratch.get_str_curr_date_str()} -- {curr_hour_str}] "
+            f"[(ID:{get_random_alphanumeric()}) {persona.scratch.get_str_curr_date_str()} -- {curr_hour_str}] "
             f"Activity: {persona.scratch.get_str_firstname()} is"
         )
 
         return {
             'schedule_format': schedule_format,
             'commonset': persona.scratch.get_str_iss(),
-            'prior_schedule': prior_schedule + "\n",
+            'prior_schedule': prior_schedule,
             'intermission_str': intermission_str,
             'intermission2': f"\n{intermission2}" if intermission2 else "",
             'prompt_ending': prompt_ending
         }
 
     def clean_up_response(response: str) -> str:
-        """Clean up the GPT response."""
+        # Remove surrounding whitespace
         response = response.strip()
+        # If multiple lines, use only the first line
+        if "\n" in response:
+            response = response.split("\n")[0]
+        # Remove trailing punctuation if any
         if response.endswith("."):
             response = response[:-1]
-        return response
-
-    def validate_response(response: str) -> bool:
-        """Validate the GPT response."""
-        try:
-            clean_up_response(response)
-            return True
-        except:
-            return False
+        # Extract text after 'Activity:' if present
+        if "Activity:" in response:
+            response = response.split("Activity:")[-1].strip()
+        # Remove any markdown formatting ticks
+        return response.strip("`").strip()
 
     def get_fallback() -> str:
-        """Return fallback response."""
         return "asleep"
 
-    # Prepare prompt and parameters
-    gpt_param = {
-        "engine": "text-davinci-003",
-        "max_tokens": 50,
-        "temperature": 0.5,
-        "top_p": 1,
-        "stream": False,
-        "frequency_penalty": 0,
-        "presence_penalty": 0,
-        "stop": ["\n"]
-    }
-
-    # Generate prompt using new template format
-    prompt_inputs = create_prompt_input(
-        persona,
-        curr_hour_str,
-        p_f_ds_hourly_org,
-        hour_str,
-        intermission2
-    )
-    
+    prompt_inputs = create_prompt_input(persona, curr_hour_str, p_f_ds_hourly_org, hour_str, intermission2)
     prompt = hourly_schedule_template.format(**prompt_inputs)
     fallback = get_fallback()
 
     try:
         response = chat_completion_request(prompt)
-        print(f"Response: {response}")
-        if not validate_response(response):
-            response = fallback
+        cleaned_response = clean_up_response(response)
+        if not cleaned_response:
+            cleaned_response = fallback
     except Exception as e:
-        print(f"Error in chat completion: {e}")
-        response = fallback
+        cleaned_response = fallback
 
-    return response, [response, prompt, gpt_param, prompt_inputs, fallback]
+    return cleaned_response, [response, prompt, prompt_inputs, fallback]
 
 def run_gpt_prompt_task_decomp(
     persona: Any,

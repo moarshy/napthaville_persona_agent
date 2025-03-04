@@ -34,8 +34,7 @@ hourly_schedule_template = """Hourly schedule format:
 {schedule_format}
 ===
 {commonset}
-{prior_schedule}
-{intermission_str}{intermission2}
+{prior_schedule}{intermission_str}{intermission2}
 {prompt_ending}"""
 
 ################################### task_decomp_template ###################################
